@@ -20,9 +20,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 final class TabItem: NSObject, WKNavigationDelegate {
     let id = UUID()
     let webView: WKWebView
-    var title: String = "新标签页"
+    var title: String = "主页"
     var url: URL?
     var isLoading: Bool = false
+    var snapshot: UIImage?
 
     weak var delegate: TabItemDelegate?
 
@@ -38,6 +39,22 @@ final class TabItem: NSObject, WKNavigationDelegate {
         webView.navigationDelegate = self
         webView.allowsBackForwardNavigationGestures = true
         webView.scrollView.keyboardDismissMode = .interactive
+        webView.backgroundColor = .systemBackground
+    }
+
+    func updateSnapshot(completion: (() -> Void)? = nil) {
+        guard webView.bounds.width > 0 && webView.bounds.height > 0 else {
+            completion?()
+            return
+        }
+
+        let config = WKSnapshotConfiguration()
+        config.rect = webView.bounds
+
+        webView.takeSnapshot(with: config) { [weak self] image, _ in
+            self?.snapshot = image
+            completion?()
+        }
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -55,6 +72,7 @@ final class TabItem: NSObject, WKNavigationDelegate {
         isLoading = false
         url = webView.url
         title = webView.title ?? url?.host ?? "新标签页"
+        updateSnapshot()
         delegate?.tabDidUpdate(self)
     }
 
@@ -123,13 +141,12 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
     private let progressView = UIProgressView(progressViewStyle: .default)
     private let webContainer = UIView()
     private let homeView = UIView()
-    private let floatingBar = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
+    private let floatingBar = UIVisualEffectView(effect: UIBlurEffect(style: .systemThickMaterial))
 
     private let backButton = UIButton(type: .system)
     private let forwardButton = UIButton(type: .system)
     private let homeButton = UIButton(type: .system)
     private let tabsButton = UIButton(type: .system)
-    private let tabsBadgeLabel = UILabel()
     private let moreButton = UIButton(type: .system)
 
     private var progressObservation: NSKeyValueObservation?
@@ -155,8 +172,10 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         topBar.backgroundColor = .systemBackground
 
         addressContainer.translatesAutoresizingMaskIntoConstraints = false
-        addressContainer.backgroundColor = .tertiarySystemFill
-        addressContainer.layer.cornerRadius = 14
+        addressContainer.backgroundColor = .systemGroupedBackground
+        addressContainer.layer.cornerRadius = 12
+        addressContainer.layer.borderWidth = 0.5
+        addressContainer.layer.borderColor = UIColor.separator.withAlphaComponent(0.3).cgColor
         addressContainer.clipsToBounds = true
 
         addressField.translatesAutoresizingMaskIntoConstraints = false
@@ -188,12 +207,14 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         homeView.backgroundColor = .systemBackground
 
         floatingBar.translatesAutoresizingMaskIntoConstraints = false
-        floatingBar.layer.cornerRadius = 27
+        floatingBar.layer.cornerRadius = 26
+        floatingBar.layer.borderWidth = 0.5
+        floatingBar.layer.borderColor = UIColor.separator.withAlphaComponent(0.2).cgColor
         floatingBar.clipsToBounds = true
         floatingBar.layer.shadowColor = UIColor.black.cgColor
-        floatingBar.layer.shadowOpacity = 0.14
-        floatingBar.layer.shadowRadius = 18
-        floatingBar.layer.shadowOffset = CGSize(width: 0, height: 6)
+        floatingBar.layer.shadowOpacity = 0.08
+        floatingBar.layer.shadowRadius = 16
+        floatingBar.layer.shadowOffset = CGSize(width: 0, height: 4)
 
         configureHomeView()
         configureFloatingButtons()
@@ -212,19 +233,19 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             topBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             topBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            topBar.heightAnchor.constraint(equalToConstant: 50),
+            topBar.heightAnchor.constraint(equalToConstant: 48),
 
             addressContainer.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 16),
             addressContainer.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -16),
             addressContainer.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-            addressContainer.heightAnchor.constraint(equalToConstant: 38),
+            addressContainer.heightAnchor.constraint(equalToConstant: 36),
 
-            addressField.leadingAnchor.constraint(equalTo: addressContainer.leadingAnchor, constant: 14),
+            addressField.leadingAnchor.constraint(equalTo: addressContainer.leadingAnchor, constant: 12),
             addressField.trailingAnchor.constraint(equalTo: inlineRefreshButton.leadingAnchor, constant: -4),
             addressField.topAnchor.constraint(equalTo: addressContainer.topAnchor),
             addressField.bottomAnchor.constraint(equalTo: addressContainer.bottomAnchor),
 
-            inlineRefreshButton.trailingAnchor.constraint(equalTo: addressContainer.trailingAnchor, constant: -6),
+            inlineRefreshButton.trailingAnchor.constraint(equalTo: addressContainer.trailingAnchor, constant: -4),
             inlineRefreshButton.centerYAnchor.constraint(equalTo: addressContainer.centerYAnchor),
             inlineRefreshButton.widthAnchor.constraint(equalToConstant: 28),
             inlineRefreshButton.heightAnchor.constraint(equalToConstant: 28),
@@ -237,7 +258,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             floatingBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             floatingBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
             floatingBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -10),
-            floatingBar.heightAnchor.constraint(equalToConstant: 54),
+            floatingBar.heightAnchor.constraint(equalToConstant: 52),
 
             webContainer.topAnchor.constraint(equalTo: progressView.bottomAnchor),
             webContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -261,20 +282,9 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
         configurePillButton(backButton, icon: "chevron.backward", action: #selector(goBack))
         configurePillButton(forwardButton, icon: "chevron.forward", action: #selector(goForward))
-        configurePillButton(homeButton, icon: "house.fill", action: #selector(goHome))
+        configurePillButton(homeButton, icon: "house", action: #selector(goHome))
         configurePillButton(tabsButton, icon: "square.on.square", action: #selector(showTabsManager))
         configurePillButton(moreButton, icon: "ellipsis", action: #selector(showMoreMenu))
-
-        tabsBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
-        tabsBadgeLabel.font = .systemFont(ofSize: 10, weight: .bold)
-        tabsBadgeLabel.textColor = .systemBlue
-        tabsBadgeLabel.textAlignment = .center
-        tabsButton.addSubview(tabsBadgeLabel)
-
-        NSLayoutConstraint.activate([
-            tabsBadgeLabel.centerXAnchor.constraint(equalTo: tabsButton.centerXAnchor),
-            tabsBadgeLabel.centerYAnchor.constraint(equalTo: tabsButton.centerYAnchor, constant: 1)
-        ])
 
         stack.addArrangedSubview(backButton)
         stack.addArrangedSubview(forwardButton)
@@ -286,8 +296,8 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: floatingBar.contentView.topAnchor, constant: 2),
-            stack.leadingAnchor.constraint(equalTo: floatingBar.contentView.leadingAnchor, constant: 6),
-            stack.trailingAnchor.constraint(equalTo: floatingBar.contentView.trailingAnchor, constant: -6),
+            stack.leadingAnchor.constraint(equalTo: floatingBar.contentView.leadingAnchor, constant: 4),
+            stack.trailingAnchor.constraint(equalTo: floatingBar.contentView.trailingAnchor, constant: -4),
             stack.bottomAnchor.constraint(equalTo: floatingBar.contentView.bottomAnchor, constant: -2)
         ])
     }
@@ -296,7 +306,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         var config = UIButton.Configuration.plain()
         config.image = UIImage(systemName: icon)
         config.baseForegroundColor = .label
-        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
 
         button.configuration = config
         button.addTarget(self, action: action, for: .touchUpInside)
@@ -469,8 +479,6 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
         let refreshIcon = activeTab.isLoading ? "xmark" : "arrow.clockwise"
         inlineRefreshButton.setImage(UIImage(systemName: refreshIcon), for: .normal)
-
-        tabsBadgeLabel.text = "\(tabs.count)"
     }
 
     private func destinationURL(from input: String) -> URL? {
@@ -549,20 +557,24 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
     }
 
     @objc private func showTabsManager() {
-        let manager = TabManagerViewController(tabs: tabs, activeIndex: activeTabIndex)
-        manager.onSelectTab = { [weak self] index in
-            self?.switchTab(to: index)
-        }
-        manager.onCloseTab = { [weak self] index in
-            self?.closeTab(at: index)
-        }
-        manager.onNewTab = { [weak self] in
-            self?.createNewTab(loadURL: nil)
-        }
+        activeTab.updateSnapshot { [weak self] in
+            guard let self = self else { return }
 
-        let nav = UINavigationController(rootViewController: manager)
-        nav.modalPresentationStyle = .pageSheet
-        present(nav, animated: true)
+            let manager = TabGridViewController(tabs: self.tabs, activeIndex: self.activeTabIndex)
+            manager.onSelectTab = { [weak self] index in
+                self?.switchTab(to: index)
+            }
+            manager.onCloseTab = { [weak self] index in
+                self?.closeTab(at: index)
+            }
+            manager.onNewTab = { [weak self] in
+                self?.createNewTab(loadURL: nil)
+            }
+
+            let nav = UINavigationController(rootViewController: manager)
+            nav.modalPresentationStyle = .pageSheet
+            self.present(nav, animated: true)
+        }
     }
 
     @objc private func openShortcut(_ sender: UIButton) {
@@ -603,9 +615,10 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
     }
 }
 
-final class TabManagerViewController: UITableViewController {
+final class TabGridViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
     private var tabs: [TabItem]
     private var activeIndex: Int
+    private var collectionView: UICollectionView!
 
     var onSelectTab: ((Int) -> Void)?
     var onCloseTab: ((Int) -> Void)?
@@ -614,7 +627,7 @@ final class TabManagerViewController: UITableViewController {
     init(tabs: [TabItem], activeIndex: Int) {
         self.tabs = tabs
         self.activeIndex = activeIndex
-        super.init(style: .insetGrouped)
+        super.init(nibName: nil, bundle: nil)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -622,7 +635,28 @@ final class TabManagerViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "标签页"
-        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "TabCell")
+        view.backgroundColor = .systemGroupedBackground
+
+        let layout = UICollectionViewFlowLayout()
+        layout.minimumInteritemSpacing = 12
+        layout.minimumLineSpacing = 16
+        layout.sectionInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+
+        collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        collectionView.translatesAutoresizingMaskIntoConstraints = false
+        collectionView.backgroundColor = .clear
+        collectionView.dataSource = self
+        collectionView.delegate = self
+        collectionView.register(TabGridCell.self, forCellWithReuseIdentifier: "TabGridCell")
+
+        view.addSubview(collectionView)
+
+        NSLayoutConstraint.activate([
+            collectionView.topAnchor.constraint(equalTo: view.topAnchor),
+            collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
 
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             image: UIImage(systemName: "plus"),
@@ -639,49 +673,55 @@ final class TabManagerViewController: UITableViewController {
         )
     }
 
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
         tabs.count
     }
 
-    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "TabCell", for: indexPath)
-        let tab = tabs[indexPath.row]
+    func collectionView(
+        _ collectionView: UICollectionView,
+        cellForItemAt indexPath: IndexPath
+    ) -> UICollectionViewCell {
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "TabGridCell", for: indexPath) as! TabGridCell
+        let tab = tabs[indexPath.item]
+        let isActive = indexPath.item == activeIndex
 
-        var content = cell.defaultContentConfiguration()
-        content.text = tab.title
-        content.secondaryText = tab.url?.absoluteString ?? "主页"
-        content.image = UIImage(systemName: indexPath.row == activeIndex ? "checkmark.circle.fill" : "globe")
-        cell.contentConfiguration = content
+        cell.configure(tab: tab, isActive: isActive)
+        cell.onClose = { [weak self] in
+            self?.closeTab(at: indexPath.item)
+        }
 
         return cell
     }
 
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        onSelectTab?(indexPath.row)
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        onSelectTab?(indexPath.item)
         dismiss(animated: true)
     }
 
-    override func tableView(
-        _ tableView: UITableView,
-        commit editingStyle: UITableViewCell.EditingStyle,
-        forRowAt indexPath: IndexPath
-    ) {
-        if editingStyle == .delete {
-            let targetIndex = indexPath.row
-            tabs.remove(at: targetIndex)
+    func collectionView(
+        _ collectionView: UICollectionView,
+        layout collectionViewLayout: UICollectionViewLayout,
+        sizeForItemAt indexPath: IndexPath
+    ) -> CGSize {
+        let width = (view.bounds.width - 44) / 2
+        return CGSize(width: width, height: width * 1.35)
+    }
 
-            if activeIndex == targetIndex {
-                activeIndex = max(0, targetIndex - 1)
-            } else if activeIndex > targetIndex {
-                activeIndex -= 1
-            }
+    private func closeTab(at index: Int) {
+        guard index >= 0 && index < tabs.count else { return }
 
-            tableView.deleteRows(at: [indexPath], with: .automatic)
-            onCloseTab?(targetIndex)
+        tabs.remove(at: index)
+        if activeIndex == index {
+            activeIndex = max(0, index - 1)
+        } else if activeIndex > index {
+            activeIndex -= 1
+        }
 
-            if tabs.isEmpty {
-                dismiss(animated: true)
-            }
+        collectionView.reloadData()
+        onCloseTab?(index)
+
+        if tabs.isEmpty {
+            dismiss(animated: true)
         }
     }
 
@@ -693,5 +733,84 @@ final class TabManagerViewController: UITableViewController {
 
     @objc private func handleDone() {
         dismiss(animated: true)
+    }
+}
+
+final class TabGridCell: UICollectionViewCell {
+    private let titleLabel = UILabel()
+    private let closeButton = UIButton(type: .system)
+    private let thumbnailView = UIImageView()
+    private let headerView = UIView()
+
+    var onClose: (() -> Void)?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+
+        contentView.backgroundColor = .secondarySystemGroupedBackground
+        contentView.layer.cornerRadius = 14
+        contentView.layer.masksToBounds = true
+        contentView.layer.borderWidth = 1
+
+        headerView.translatesAutoresizingMaskIntoConstraints = false
+        headerView.backgroundColor = .secondarySystemGroupedBackground
+
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        titleLabel.textColor = .label
+
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        closeButton.tintColor = .secondaryLabel
+        closeButton.addTarget(self, action: #selector(handleClose), for: .touchUpInside)
+
+        thumbnailView.translatesAutoresizingMaskIntoConstraints = false
+        thumbnailView.contentMode = .scaleAspectFill
+        thumbnailView.clipsToBounds = true
+        thumbnailView.backgroundColor = .systemBackground
+
+        headerView.addSubview(titleLabel)
+        headerView.addSubview(closeButton)
+        contentView.addSubview(headerView)
+        contentView.addSubview(thumbnailView)
+
+        NSLayoutConstraint.activate([
+            headerView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            headerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            headerView.heightAnchor.constraint(equalToConstant: 32),
+
+            titleLabel.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 10),
+            titleLabel.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -4),
+            titleLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+
+            closeButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -6),
+            closeButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+            closeButton.widthAnchor.constraint(equalToConstant: 24),
+            closeButton.heightAnchor.constraint(equalToConstant: 24),
+
+            thumbnailView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            thumbnailView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            thumbnailView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            thumbnailView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    func configure(tab: TabItem, isActive: Bool) {
+        titleLabel.text = tab.title
+        contentView.layer.borderColor = isActive ? UIColor.systemBlue.cgColor : UIColor.clear.cgColor
+        contentView.layer.borderWidth = isActive ? 2.0 : 0.0
+
+        if let snapshot = tab.snapshot {
+            thumbnailView.image = snapshot
+        } else {
+            thumbnailView.image = nil
+        }
+    }
+
+    @objc private func handleClose() {
+        onClose?()
     }
 }
