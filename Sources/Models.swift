@@ -9,6 +9,30 @@ struct UserScript: Codable {
     var isEnabled: Bool
 }
 
+final class EyeProtectionManager {
+    static let shared = EyeProtectionManager()
+    private var overlayView: UIView?
+    var isEnabled: Bool = false
+
+    private init() {}
+
+    func toggle(in window: UIWindow?) {
+        isEnabled = !isEnabled
+        if isEnabled {
+            guard let window = window else { return }
+            let overlay = UIView(frame: window.bounds)
+            overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            overlay.backgroundColor = UIColor.black.withAlphaComponent(0.35)
+            overlay.isUserInteractionEnabled = false
+            window.addSubview(overlay)
+            overlayView = overlay
+        } else {
+            overlayView?.removeFromSuperview()
+            overlayView = nil
+        }
+    }
+}
+
 final class DomainSettingsStore {
     static let shared = DomainSettingsStore()
     private init() {}
@@ -174,6 +198,24 @@ final class ScriptDataStore {
 
     func deleteValue(scriptId: String, name: String) {
         UserDefaults.standard.removeObject(forKey: makeKey(scriptId, name))
+    }
+
+    func clearDataForScript(scriptId: String) {
+        let prefix = "GM_DATA_\(scriptId)_"
+        for (k, _) in UserDefaults.standard.dictionaryRepresentation() {
+            if k.hasPrefix(prefix) {
+                UserDefaults.standard.removeObject(forKey: k)
+            }
+        }
+    }
+
+    func clearAllScriptData() {
+        let prefix = "GM_DATA_"
+        for (k, _) in UserDefaults.standard.dictionaryRepresentation() {
+            if k.hasPrefix(prefix) {
+                UserDefaults.standard.removeObject(forKey: k)
+            }
+        }
     }
 
     func getAllValuesJSON(scriptId: String) -> String {
@@ -521,15 +563,6 @@ final class TabItem: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
         let scheme = url.scheme?.lowercased() ?? ""
 
         if ["http", "https", "about", "data", "blob"].contains(scheme) {
-            if let host = self.url?.host {
-                let alwaysNewTab = DomainSettingsStore.shared.getBool(domain: host, setting: "alwaysNewTab", defaultVal: false)
-                if alwaysNewTab && navigationAction.navigationType == .linkActivated {
-                    decisionHandler(.cancel)
-                    delegate?.tabRequestNewTab(url: url)
-                    return
-                }
-            }
-
             if navigationAction.targetFrame == nil {
                 webView.load(navigationAction.request)
                 decisionHandler(.cancel)
