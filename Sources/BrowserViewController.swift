@@ -150,7 +150,6 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
                     self?.activeTab.reloadUserScripts()
                 })
 
-                alert.addAction(UIAlertAction(title: "取消", style: .cancel))
                 self?.present(alert, animated: true)
             }
         }
@@ -178,6 +177,10 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         addressContainer.layer.shadowRadius = 8
         addressContainer.layer.shadowOffset = CGSize(width: 0, height: 3)
         addressContainer.clipsToBounds = true
+
+        let longPressAddress = UILongPressGestureRecognizer(target: self, action: #selector(handleAddressLongPress(_:)))
+        longPressAddress.minimumPressDuration = 0.6
+        addressContainer.addGestureRecognizer(longPressAddress)
 
         siteSettingsButton.translatesAutoresizingMaskIntoConstraints = false
         siteSettingsButton.tintColor = .secondaryLabel
@@ -326,6 +329,43 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         ])
     }
 
+    @objc private func handleAddressLongPress(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        let urlText = activeTab.url?.absoluteString ?? addressField.text ?? ""
+        guard !urlText.isEmpty else { return }
+
+        UIPasteboard.general.string = urlText
+        let feedback = UIImpactFeedbackGenerator(style: .medium)
+        feedback.impactOccurred()
+        showToastNotice("已复制当前网址")
+    }
+
+    private func showToastNotice(_ text: String) {
+        let toast = UILabel()
+        toast.text = "  \(text)  "
+        toast.font = .systemFont(ofSize: 13, weight: .medium)
+        toast.textColor = .white
+        toast.backgroundColor = UIColor.black.withAlphaComponent(0.75)
+        toast.layer.cornerRadius = 12
+        toast.clipsToBounds = true
+        toast.translatesAutoresizingMaskIntoConstraints = false
+        toast.alpha = 0
+
+        view.addSubview(toast)
+        NSLayoutConstraint.activate([
+            toast.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            toast.bottomAnchor.constraint(equalTo: bottomPanel.topAnchor, constant: -12),
+            toast.heightAnchor.constraint(equalToConstant: 32)
+        ])
+
+        UIView.animate(withDuration: 0.18) { toast.alpha = 1 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            UIView.animate(withDuration: 0.2, animations: { toast.alpha = 0 }) { _ in
+                toast.removeFromSuperview()
+            }
+        }
+    }
+
     private func configureToolbarButton(_ button: TouchButton, imageName: String, action: Selector?) {
         var configuration = UIButton.Configuration.plain()
         configuration.image = UIImage(
@@ -366,7 +406,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
     private func configureFullscreenExitGesture() {
         let gesture = UILongPressGestureRecognizer(target: self, action: #selector(handleFullscreenExitGesture(_:)))
-        gesture.minimumPressDuration = 2.0
+        gesture.minimumPressDuration = 1.5
         gesture.numberOfTouchesRequired = 2
         gesture.cancelsTouchesInView = false
         view.addGestureRecognizer(gesture)
@@ -564,8 +604,6 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         alert.addAction(UIAlertAction(title: "重试", style: .default) { [weak self] _ in
             self?.activeTab.webView.reload()
         })
-
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
 
         present(alert, animated: true)
     }
@@ -843,7 +881,6 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             self?.showPluginManager()
         })
 
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
         present(alert, animated: true)
     }
 
@@ -882,10 +919,6 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             }
             let nav = UINavigationController(rootViewController: editor)
             self?.present(nav, animated: true)
-        })
-
-        alert.addAction(UIAlertAction(title: "返回上级", style: .cancel) { [weak self] _ in
-            self?.showPluginPanel()
         })
 
         present(alert, animated: true)
@@ -956,16 +989,17 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             EyeProtectionManager.shared.toggle(in: self?.view.window)
         })
 
-        let currentUAMode = UserAgentStore.shared.getMode()
-        alert.addAction(UIAlertAction(title: "浏览器标识 (\(currentUAMode.rawValue))", style: .default) { [weak self] _ in
-            self?.showUserAgentMenu()
+        let currentUAItem = UserAgentStore.shared.getSelectedItem()
+        alert.addAction(UIAlertAction(title: "浏览器标识: \(currentUAItem.name)", style: .default) { [weak self] _ in
+            self?.showUserAgentManager()
         })
 
-        let isDesktop = currentUAMode == .desktop
+        let isDesktop = currentUAItem.id == "default_mac"
         alert.addAction(UIAlertAction(title: isDesktop ? "切换为移动版网页" : "切换为电脑版网页", style: .default) { [weak self] _ in
-            let nextMode: UserAgentMode = isDesktop ? .mobileSafari : .desktop
-            UserAgentStore.shared.setMode(nextMode)
-            self?.activeTab.webView.customUserAgent = nextMode.userAgentString
+            let targetId = isDesktop ? "default_safari" : "default_mac"
+            UserAgentStore.shared.setSelectedId(targetId)
+            let newUA = UserAgentStore.shared.getSelectedUA()
+            self?.activeTab.webView.customUserAgent = newUA
             self?.activeTab.webView.reload()
         })
 
@@ -973,25 +1007,23 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             self?.showCleanDataMenu()
         })
 
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "管理网站数据", style: .default) { [weak self] _ in
+            let manager = WebsiteDataManagerViewController()
+            let nav = UINavigationController(rootViewController: manager)
+            self?.present(nav, animated: true)
+        })
+
         present(alert, animated: true)
     }
 
-    private func showUserAgentMenu() {
-        let alert = UIAlertController(title: "选择浏览器标识 (User-Agent)", message: nil, preferredStyle: .actionSheet)
-        let currentMode = UserAgentStore.shared.getMode()
-
-        for mode in UserAgentMode.allCases {
-            let mark = mode == currentMode ? " ✓" : ""
-            alert.addAction(UIAlertAction(title: mode.rawValue + mark, style: .default) { [weak self] _ in
-                UserAgentStore.shared.setMode(mode)
-                self?.activeTab.webView.customUserAgent = mode.userAgentString
-                self?.activeTab.webView.reload()
-            })
+    private func showUserAgentManager() {
+        let manager = UserAgentManagerViewController()
+        manager.onUASelected = { [weak self] newUA in
+            self?.activeTab.webView.customUserAgent = newUA
+            self?.activeTab.webView.reload()
         }
-
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
-        present(alert, animated: true)
+        let nav = UINavigationController(rootViewController: manager)
+        present(nav, animated: true)
     }
 
     private func showCleanDataMenu() {
