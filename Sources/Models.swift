@@ -9,27 +9,83 @@ struct UserScript: Codable {
     var isEnabled: Bool
 }
 
-final class EyeProtectionManager {
-    static let shared = EyeProtectionManager()
-    private var overlayView: UIView?
-    var isEnabled: Bool = false
+enum UserAgentMode: String, CaseIterable {
+    case mobileSafari = "iPhone (Safari)"
+    case mobileChrome = "iPhone (Chrome)"
+    case desktop = "电脑版 (Mac Chrome)"
+
+    var userAgentString: String {
+        switch self {
+        case .mobileSafari:
+            return "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/605.1.15"
+        case .mobileChrome:
+            return "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/125.0.6422.80 Mobile/15E148 Safari/604.1"
+        case .desktop:
+            return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        }
+    }
+}
+
+final class UserAgentStore {
+    static let shared = UserAgentStore()
+    private let key = "browser_user_agent_mode_v1"
 
     private init() {}
+
+    func getMode() -> UserAgentMode {
+        guard let raw = UserDefaults.standard.string(forKey: key),
+              let mode = UserAgentMode(rawValue: raw) else {
+            return .mobileSafari
+        }
+        return mode
+    }
+
+    func setMode(_ mode: UserAgentMode) {
+        UserDefaults.standard.set(mode.rawValue, forKey: key)
+    }
+}
+
+final class EyeProtectionManager {
+    static let shared = EyeProtectionManager()
+    private let key = "eye_protection_enabled_v1"
+    private var overlayView: UIView?
+
+    var isEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: key) }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+
+    private init() {}
+
+    func restoreState(in window: UIWindow?) {
+        if isEnabled {
+            applyOverlay(in: window)
+        }
+    }
 
     func toggle(in window: UIWindow?) {
         isEnabled = !isEnabled
         if isEnabled {
-            guard let window = window else { return }
-            let overlay = UIView(frame: window.bounds)
-            overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            overlay.backgroundColor = UIColor.black.withAlphaComponent(0.35)
-            overlay.isUserInteractionEnabled = false
-            window.addSubview(overlay)
-            overlayView = overlay
+            applyOverlay(in: window)
         } else {
-            overlayView?.removeFromSuperview()
-            overlayView = nil
+            removeOverlay()
         }
+    }
+
+    private func applyOverlay(in window: UIWindow?) {
+        removeOverlay()
+        guard let window = window else { return }
+        let overlay = UIView(frame: window.bounds)
+        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        overlay.backgroundColor = UIColor.black.withAlphaComponent(0.35)
+        overlay.isUserInteractionEnabled = false
+        window.addSubview(overlay)
+        overlayView = overlay
+    }
+
+    private func removeOverlay() {
+        overlayView?.removeFromSuperview()
+        overlayView = nil
     }
 }
 
@@ -264,12 +320,18 @@ final class TabItem: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
         configuration.websiteDataStore = .default()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        configuration.allowsInlineMediaPlayback = true
+        configuration.mediaTypesRequiringUserActionForPlayback = .all
+        configuration.allowsPictureInPictureMediaPlayback = true
 
         let userContentController = WKUserContentController()
         configuration.userContentController = userContentController
 
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
+
+        let mode = UserAgentStore.shared.getMode()
+        webView.customUserAgent = mode.userAgentString
 
         userContentController.add(self, name: "GM")
 
