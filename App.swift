@@ -70,6 +70,18 @@ final class TabItem: NSObject, WKNavigationDelegate {
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
 
+        let userContentController = WKUserContentController()
+        let storedScripts = UserDefaults.standard.stringArray(forKey: "user_tampermonkey_scripts") ?? []
+        for scriptSource in storedScripts {
+            let script = WKUserScript(
+                source: scriptSource,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: false
+            )
+            userContentController.addUserScript(script)
+        }
+        configuration.userContentController = userContentController
+
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
 
@@ -254,8 +266,11 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         addressContainer.translatesAutoresizingMaskIntoConstraints = false
         addressContainer.backgroundColor = .systemBackground
         addressContainer.layer.cornerRadius = 18
-        addressContainer.layer.borderWidth = 0.5
-        addressContainer.layer.borderColor = UIColor.separator.withAlphaComponent(0.4).cgColor
+        addressContainer.layer.borderWidth = 0
+        addressContainer.layer.shadowColor = UIColor.black.cgColor
+        addressContainer.layer.shadowOpacity = 0.08
+        addressContainer.layer.shadowRadius = 8
+        addressContainer.layer.shadowOffset = CGSize(width: 0, height: 3)
 
         addressField.translatesAutoresizingMaskIntoConstraints = false
         addressField.delegate = self
@@ -307,14 +322,11 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         navigationStack.distribution = .fillEqually
         navigationStack.spacing = 0
 
-        configureToolbarButton(backButton, imageName: "arrow.left", action: #selector(goBack))
-        configureToolbarButton(forwardButton, imageName: "arrow.right", action: #selector(goForward))
-        configureToolbarButton(pluginButton, imageName: "puzzlepiece", action: nil)
+        configureToolbarButton(backButton, imageName: "chevron.left", action: #selector(goBack))
+        configureToolbarButton(forwardButton, imageName: "chevron.right", action: #selector(goForward))
+        configureToolbarButton(pluginButton, imageName: "puzzlepiece", action: #selector(showPluginManager))
         configureToolbarButton(tabsButton, imageName: "square.on.square", action: #selector(showTabsManager))
         configureToolbarButton(moreButton, imageName: "line.3.horizontal", action: #selector(showMoreMenu))
-
-        pluginButton.isEnabled = false
-        pluginButton.alpha = 0.35
 
         navigationStack.addArrangedSubview(backButton)
         navigationStack.addArrangedSubview(forwardButton)
@@ -810,6 +822,44 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         activeTab.webView.goForward()
     }
 
+    @objc private func showPluginManager() {
+        dismissKeyboard()
+
+        let alert = UIAlertController(
+            title: "油猴脚本扩展",
+            message: "请输入或粘贴自定义 JavaScript / 油猴脚本代码：",
+            preferredStyle: .alert
+        )
+
+        alert.addTextField { textField in
+            textField.placeholder = "粘贴 JavaScript / Tampermonkey 脚本"
+        }
+
+        alert.addAction(UIAlertAction(title: "保存扩展脚本", style: .default) { [weak self] _ in
+            guard let text = alert.textFields?.first?.text, !text.isEmpty else {
+                return
+            }
+
+            var scripts = UserDefaults.standard.stringArray(forKey: "user_tampermonkey_scripts") ?? []
+            scripts.append(text)
+            UserDefaults.standard.set(scripts, forKey: "user_tampermonkey_scripts")
+
+            let userScript = WKUserScript(source: text, injectionTime: .atDocumentEnd, forMainFrameOnly: false)
+            self?.activeTab.webView.configuration.userContentController.addUserScript(userScript)
+            self?.activeTab.webView.reload()
+        })
+
+        alert.addAction(UIAlertAction(title: "清空所有脚本", style: .destructive) { [weak self] _ in
+            UserDefaults.standard.removeObject(forKey: "user_tampermonkey_scripts")
+            self?.activeTab.webView.configuration.userContentController.removeAllUserScripts()
+            self?.activeTab.webView.reload()
+        })
+
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+
+        present(alert, animated: true)
+    }
+
     @objc private func showTabsManager() {
         dismissKeyboard()
 
@@ -856,6 +906,12 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
                 }
 
                 self.setFullscreen(!self.isFullscreen)
+            }
+        )
+
+        alert.addAction(
+            UIAlertAction(title: "油猴脚本扩展", style: .default) { [weak self] _ in
+                self?.showPluginManager()
             }
         )
 
