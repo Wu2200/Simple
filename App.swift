@@ -17,41 +17,48 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 }
 
+protocol TabItemDelegate: AnyObject {
+    func tabDidUpdate(_ tab: TabItem)
+    func tabDidFail(_ tab: TabItem, error: Error)
+}
+
 final class TabItem: NSObject, WKNavigationDelegate {
     let id = UUID()
     let webView: WKWebView
-    var title: String = "主页"
+    var title = "主页"
     var url: URL?
-    var isLoading: Bool = false
+    var isLoading = false
     var snapshot: UIImage?
 
     weak var delegate: TabItemDelegate?
 
     override init() {
-        let config = WKWebViewConfiguration()
-        config.websiteDataStore = .default()
-        config.preferences.javaScriptCanOpenWindowsAutomatically = true
-        config.defaultWebpagePreferences.allowsContentJavaScript = true
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .default()
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
 
-        webView = WKWebView(frame: .zero, configuration: config)
+        webView = WKWebView(frame: .zero, configuration: configuration)
+
         super.init()
 
         webView.navigationDelegate = self
         webView.allowsBackForwardNavigationGestures = true
         webView.scrollView.keyboardDismissMode = .onDrag
         webView.backgroundColor = .systemBackground
+        webView.isOpaque = true
     }
 
     func updateSnapshot(completion: (() -> Void)? = nil) {
-        guard webView.bounds.width > 0 && webView.bounds.height > 0 else {
+        guard webView.bounds.width > 0, webView.bounds.height > 0 else {
             completion?()
             return
         }
 
-        let config = WKSnapshotConfiguration()
-        config.rect = webView.bounds
+        let configuration = WKSnapshotConfiguration()
+        configuration.rect = webView.bounds
 
-        webView.takeSnapshot(with: config) { [weak self] image, _ in
+        webView.takeSnapshot(with: configuration) { [weak self] image, _ in
             self?.snapshot = image
             completion?()
         }
@@ -99,50 +106,67 @@ final class TabItem: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        guard let requestUrl = navigationAction.request.url else {
+        guard let requestURL = navigationAction.request.url else {
             decisionHandler(.cancel)
             return
         }
 
-        let scheme = requestUrl.scheme?.lowercased() ?? ""
+        let scheme = requestURL.scheme?.lowercased() ?? ""
 
-        if scheme == "http" || scheme == "https" || scheme == "about" || scheme == "data" || scheme == "blob" {
+        if ["http", "https", "about", "data", "blob"].contains(scheme) {
             if navigationAction.targetFrame == nil {
                 webView.load(navigationAction.request)
                 decisionHandler(.cancel)
                 return
             }
+
             decisionHandler(.allow)
             return
         }
 
         decisionHandler(.cancel)
-        UIApplication.shared.open(requestUrl, options: [:], completionHandler: nil)
+
+        if scheme == "intent", let fallbackURL = fallbackURL(from: requestURL) {
+            webView.load(URLRequest(url: fallbackURL))
+            return
+        }
+
+        UIApplication.shared.open(requestURL, options: [:], completionHandler: nil)
+    }
+
+    private func fallbackURL(from intentURL: URL) -> URL? {
+        let value = intentURL.absoluteString
+
+        guard let range = value.range(of: "S.browser_fallback_url=") else {
+            return nil
+        }
+
+        let encodedValue = String(value[range.upperBound...]).components(separatedBy: ";").first ?? ""
+        let decodedValue = encodedValue.removingPercentEncoding ?? encodedValue
+
+        return URL(string: decodedValue)
     }
 }
 
-protocol TabItemDelegate: AnyObject {
-    func tabDidUpdate(_ tab: TabItem)
-    func tabDidFail(_ tab: TabItem, error: Error)
-}
-
-final class BrowserViewController: UIViewController, UITextFieldDelegate, TabItemDelegate {
+final class BrowserViewController: UIViewController, UITextFieldDelegate, TabItemDelegate, UIGestureRecognizerDelegate {
     private var tabs: [TabItem] = []
-    private var activeTabIndex: Int = 0
+    private var activeTabIndex = 0
+    private var progressObservation: NSKeyValueObservation?
+    private var isFullscreen = false
 
     private var activeTab: TabItem {
         tabs[activeTabIndex]
     }
 
-    private let progressView = UIProgressView(progressViewStyle: .default)
     private let webContainer = UIView()
     private let homeView = UIView()
     private let bottomPanel = UIView()
+    private let progressView = UIProgressView(progressViewStyle: .default)
 
     private let addressContainer = UIView()
-    private let lockIconView = UIImageView()
     private let addressField = UITextField()
-    private let inlineRefreshButton = UIButton(type: .system)
+    private let refreshButton = UIButton(type: .system)
+    private let clearButton = UIButton(type: .system)
 
     private let navigationStack = UIStackView()
     private let backButton = UIButton(type: .system)
@@ -152,17 +176,33 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
     private let moreButton = UIButton(type: .system)
 
     private var bottomPanelBottomConstraint: NSLayoutConstraint?
-    private var progressObservation: NSKeyValueObservation?
+    private var webTopSafeConstraint: NSLayoutConstraint?
+    private var webTopFullscreenConstraint: NSLayoutConstraint?
+    private var webBottomPanelConstraint: NSLayoutConstraint?
+    private var webBottomFullscreenConstraint: NSLayoutConstraint?
+    private var homeTopSafeConstraint: NSLayoutConstraint?
+    private var homeTopFullscreenConstraint: NSLayoutConstraint?
+    private var homeBottomPanelConstraint: NSLayoutConstraint?
+    private var homeBottomFullscreenConstraint: NSLayoutConstraint?
 
     override var preferredStatusBarStyle: UIStatusBarStyle {
         .darkContent
     }
 
+    override var prefersStatusBarHidden: Bool {
+        isFullscreen
+    }
+
+    override var prefersHomeIndicatorAutoHidden: Bool {
+        isFullscreen
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         configureInterface()
-        configureKeyboardDismissal()
         configureKeyboardObservers()
+        configureKeyboardDismissal()
+        configureFullscreenExitGesture()
         createNewTab(loadURL: nil)
     }
 
@@ -171,17 +211,207 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         progressObservation?.invalidate()
     }
 
-    private func configureKeyboardDismissal() {
-        let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
-        tap.cancelsTouchesInView = false
-        view.addGestureRecognizer(tap)
+    private func configureInterface() {
+        view.backgroundColor = .systemBackground
+
+        webContainer.translatesAutoresizingMaskIntoConstraints = false
+        webContainer.backgroundColor = .systemBackground
+
+        homeView.translatesAutoresizingMaskIntoConstraints = false
+        homeView.backgroundColor = .systemBackground
+
+        bottomPanel.translatesAutoresizingMaskIntoConstraints = false
+        bottomPanel.backgroundColor = UIColor(
+            red: 246.0 / 255.0,
+            green: 246.0 / 255.0,
+            blue: 248.0 / 255.0,
+            alpha: 1
+        )
+
+        addressContainer.translatesAutoresizingMaskIntoConstraints = false
+        addressContainer.backgroundColor = .white
+        addressContainer.layer.cornerRadius = 23
+        addressContainer.layer.borderWidth = 0.5
+        addressContainer.layer.borderColor = UIColor(
+            red: 219.0 / 255.0,
+            green: 219.0 / 255.0,
+            blue: 224.0 / 255.0,
+            alpha: 1
+        ).cgColor
+        addressContainer.layer.shadowColor = UIColor.black.cgColor
+        addressContainer.layer.shadowOpacity = 0.045
+        addressContainer.layer.shadowRadius = 10
+        addressContainer.layer.shadowOffset = CGSize(width: 0, height: 3)
+
+        addressField.translatesAutoresizingMaskIntoConstraints = false
+        addressField.delegate = self
+        addressField.placeholder = "搜索或输入网址"
+        addressField.font = .systemFont(ofSize: 17, weight: .regular)
+        addressField.textColor = .label
+        addressField.textAlignment = .center
+        addressField.keyboardType = .webSearch
+        addressField.returnKeyType = .go
+        addressField.autocapitalizationType = .none
+        addressField.autocorrectionType = .no
+        addressField.clearButtonMode = .never
+        addressField.textContentType = .URL
+        addressField.addTarget(self, action: #selector(addressFieldDidChange), for: .editingChanged)
+
+        refreshButton.translatesAutoresizingMaskIntoConstraints = false
+        refreshButton.tintColor = UIColor(
+            red: 82.0 / 255.0,
+            green: 82.0 / 255.0,
+            blue: 87.0 / 255.0,
+            alpha: 1
+        )
+        refreshButton.setImage(
+            UIImage(
+                systemName: "arrow.clockwise",
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 23, weight: .regular)
+            ),
+            for: .normal
+        )
+        refreshButton.addTarget(self, action: #selector(handleRefreshTap), for: .touchUpInside)
+
+        clearButton.translatesAutoresizingMaskIntoConstraints = false
+        clearButton.tintColor = UIColor(
+            red: 96.0 / 255.0,
+            green: 96.0 / 255.0,
+            blue: 101.0 / 255.0,
+            alpha: 1
+        )
+        clearButton.setImage(
+            UIImage(
+                systemName: "xmark.circle.fill",
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 24, weight: .medium)
+            ),
+            for: .normal
+        )
+        clearButton.alpha = 0
+        clearButton.isHidden = true
+        clearButton.addTarget(self, action: #selector(clearAddressInput), for: .touchUpInside)
+
+        progressView.translatesAutoresizingMaskIntoConstraints = false
+        progressView.progressTintColor = .systemBlue
+        progressView.trackTintColor = .clear
+        progressView.alpha = 0
+        progressView.progress = 0
+
+        navigationStack.translatesAutoresizingMaskIntoConstraints = false
+        navigationStack.axis = .horizontal
+        navigationStack.alignment = .fill
+        navigationStack.distribution = .fillEqually
+        navigationStack.spacing = 0
+
+        configureToolbarButton(backButton, imageName: "chevron.backward", action: #selector(goBack))
+        configureToolbarButton(forwardButton, imageName: "chevron.forward", action: #selector(goForward))
+        configureToolbarButton(homeButton, imageName: "safari", action: #selector(goHome))
+        configureToolbarButton(tabsButton, imageName: "square.on.square", action: #selector(showTabsManager))
+        configureToolbarButton(moreButton, imageName: "line.3.horizontal", action: #selector(showMoreMenu))
+
+        navigationStack.addArrangedSubview(backButton)
+        navigationStack.addArrangedSubview(forwardButton)
+        navigationStack.addArrangedSubview(homeButton)
+        navigationStack.addArrangedSubview(tabsButton)
+        navigationStack.addArrangedSubview(moreButton)
+
+        addressContainer.addSubview(addressField)
+        addressContainer.addSubview(refreshButton)
+        addressContainer.addSubview(clearButton)
+
+        bottomPanel.addSubview(addressContainer)
+        bottomPanel.addSubview(navigationStack)
+
+        view.addSubview(webContainer)
+        view.addSubview(homeView)
+        view.addSubview(bottomPanel)
+        view.addSubview(progressView)
+
+        bottomPanelBottomConstraint = bottomPanel.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+
+        webTopSafeConstraint = webContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor)
+        webTopFullscreenConstraint = webContainer.topAnchor.constraint(equalTo: view.topAnchor)
+        webBottomPanelConstraint = webContainer.bottomAnchor.constraint(equalTo: bottomPanel.topAnchor)
+        webBottomFullscreenConstraint = webContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+
+        homeTopSafeConstraint = homeView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor)
+        homeTopFullscreenConstraint = homeView.topAnchor.constraint(equalTo: view.topAnchor)
+        homeBottomPanelConstraint = homeView.bottomAnchor.constraint(equalTo: bottomPanel.topAnchor)
+        homeBottomFullscreenConstraint = homeView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+
+        webTopSafeConstraint?.isActive = true
+        webBottomPanelConstraint?.isActive = true
+        homeTopSafeConstraint?.isActive = true
+        homeBottomPanelConstraint?.isActive = true
+
+        NSLayoutConstraint.activate([
+            webContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            webContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+
+            homeView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            homeView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+
+            bottomPanel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomPanelBottomConstraint!,
+
+            addressContainer.topAnchor.constraint(equalTo: bottomPanel.topAnchor, constant: 8),
+            addressContainer.leadingAnchor.constraint(equalTo: bottomPanel.leadingAnchor, constant: 16),
+            addressContainer.trailingAnchor.constraint(equalTo: bottomPanel.trailingAnchor, constant: -16),
+            addressContainer.heightAnchor.constraint(equalToConstant: 46),
+
+            refreshButton.trailingAnchor.constraint(equalTo: addressContainer.trailingAnchor, constant: -10),
+            refreshButton.centerYAnchor.constraint(equalTo: addressContainer.centerYAnchor),
+            refreshButton.widthAnchor.constraint(equalToConstant: 30),
+            refreshButton.heightAnchor.constraint(equalToConstant: 30),
+
+            clearButton.trailingAnchor.constraint(equalTo: addressContainer.trailingAnchor, constant: -10),
+            clearButton.centerYAnchor.constraint(equalTo: addressContainer.centerYAnchor),
+            clearButton.widthAnchor.constraint(equalToConstant: 34),
+            clearButton.heightAnchor.constraint(equalToConstant: 34),
+
+            addressField.leadingAnchor.constraint(equalTo: addressContainer.leadingAnchor, constant: 20),
+            addressField.trailingAnchor.constraint(equalTo: refreshButton.leadingAnchor, constant: -10),
+            addressField.topAnchor.constraint(equalTo: addressContainer.topAnchor),
+            addressField.bottomAnchor.constraint(equalTo: addressContainer.bottomAnchor),
+
+            navigationStack.topAnchor.constraint(equalTo: addressContainer.bottomAnchor, constant: 4),
+            navigationStack.leadingAnchor.constraint(equalTo: bottomPanel.leadingAnchor, constant: 10),
+            navigationStack.trailingAnchor.constraint(equalTo: bottomPanel.trailingAnchor, constant: -10),
+            navigationStack.bottomAnchor.constraint(equalTo: bottomPanel.safeAreaLayoutGuide.bottomAnchor, constant: -2),
+            navigationStack.heightAnchor.constraint(equalToConstant: 45),
+
+            progressView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            progressView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            progressView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            progressView.heightAnchor.constraint(equalToConstant: 3)
+        ])
+
+        view.bringSubviewToFront(progressView)
+    }
+
+    private func configureToolbarButton(_ button: UIButton, imageName: String, action: Selector) {
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(
+            systemName: imageName,
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 23, weight: .regular)
+        )
+        configuration.baseForegroundColor = UIColor(
+            red: 37.0 / 255.0,
+            green: 37.0 / 255.0,
+            blue: 40.0 / 255.0,
+            alpha: 1
+        )
+
+        button.configuration = configuration
+        button.addTarget(self, action: action, for: .touchUpInside)
     }
 
     private func configureKeyboardObservers() {
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(keyboardWillShow(_:)),
-            name: UIResponder.keyboardWillShowNotification,
+            selector: #selector(keyboardWillChangeFrame(_:)),
+            name: UIResponder.keyboardWillChangeFrameNotification,
             object: nil
         )
 
@@ -193,214 +423,58 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         )
     }
 
-    @objc private func dismissKeyboard() {
-        view.endEditing(true)
+    private func configureKeyboardDismissal() {
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+        tapGesture.cancelsTouchesInView = false
+        tapGesture.delegate = self
+        view.addGestureRecognizer(tapGesture)
     }
 
-    @objc private func keyboardWillShow(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let keyboardFrame = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
-              let duration = userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval else {
-            return
-        }
-
-        let curveValue = userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
-        let options = UIView.AnimationOptions(rawValue: curveValue << 16)
-
-        bottomPanelBottomConstraint?.constant = -keyboardFrame.height
-
-        UIView.animate(withDuration: duration, delay: 0, options: options) {
-            self.view.layoutIfNeeded()
-        }
-    }
-
-    @objc private func keyboardWillHide(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let duration = userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval else {
-            return
-        }
-
-        let curveValue = userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
-        let options = UIView.AnimationOptions(rawValue: curveValue << 16)
-
-        bottomPanelBottomConstraint?.constant = 0
-
-        UIView.animate(withDuration: duration, delay: 0, options: options) {
-            self.view.layoutIfNeeded()
-        }
-    }
-
-    private func configureInterface() {
-        view.backgroundColor = .systemBackground
-
-        progressView.translatesAutoresizingMaskIntoConstraints = false
-        progressView.progressTintColor = .systemBlue
-        progressView.trackTintColor = .clear
-        progressView.alpha = 0
-
-        webContainer.translatesAutoresizingMaskIntoConstraints = false
-        webContainer.backgroundColor = .systemBackground
-
-        homeView.translatesAutoresizingMaskIntoConstraints = false
-        homeView.backgroundColor = .systemBackground
-
-        bottomPanel.translatesAutoresizingMaskIntoConstraints = false
-        bottomPanel.backgroundColor = .secondarySystemBackground
-
-        addressContainer.translatesAutoresizingMaskIntoConstraints = false
-        addressContainer.backgroundColor = .white
-        addressContainer.layer.cornerRadius = 20
-        addressContainer.layer.shadowColor = UIColor.black.cgColor
-        addressContainer.layer.shadowOpacity = 0.05
-        addressContainer.layer.shadowRadius = 6
-        addressContainer.layer.shadowOffset = CGSize(width: 0, height: 2)
-
-        lockIconView.translatesAutoresizingMaskIntoConstraints = false
-        lockIconView.image = UIImage(systemName: "lock.fill")
-        lockIconView.tintColor = .secondaryLabel
-        lockIconView.contentMode = .scaleAspectFit
-
-        addressField.translatesAutoresizingMaskIntoConstraints = false
-        addressField.delegate = self
-        addressField.placeholder = "搜索或输入网址"
-        addressField.font = .systemFont(ofSize: 15, weight: .regular)
-        addressField.textColor = .label
-        addressField.textAlignment = .center
-        addressField.keyboardType = .webSearch
-        addressField.returnKeyType = .go
-        addressField.autocapitalizationType = .none
-        addressField.autocorrectionType = .no
-        addressField.clearButtonMode = .whileEditing
-        addressField.textContentType = .URL
-
-        inlineRefreshButton.translatesAutoresizingMaskIntoConstraints = false
-        inlineRefreshButton.tintColor = .secondaryLabel
-        inlineRefreshButton.setImage(UIImage(systemName: "arrow.clockwise"), for: .normal)
-        inlineRefreshButton.addTarget(self, action: #selector(handleRefreshTap), for: .touchUpInside)
-
-        navigationStack.translatesAutoresizingMaskIntoConstraints = false
-        navigationStack.axis = .horizontal
-        navigationStack.alignment = .fill
-        navigationStack.distribution = .fillEqually
-        navigationStack.spacing = 0
-
-        configurePillButton(backButton, icon: "chevron.backward", action: #selector(goBack))
-        configurePillButton(forwardButton, icon: "chevron.forward", action: #selector(goForward))
-        configurePillButton(homeButton, icon: "house", action: #selector(goHome))
-        configurePillButton(tabsButton, icon: "square.on.square", action: #selector(showTabsManager))
-        configurePillButton(moreButton, icon: "line.3.horizontal", action: #selector(showMoreMenu))
-
-        navigationStack.addArrangedSubview(backButton)
-        navigationStack.addArrangedSubview(forwardButton)
-        navigationStack.addArrangedSubview(homeButton)
-        navigationStack.addArrangedSubview(tabsButton)
-        navigationStack.addArrangedSubview(moreButton)
-
-        addressContainer.addSubview(lockIconView)
-        addressContainer.addSubview(addressField)
-        addressContainer.addSubview(inlineRefreshButton)
-
-        bottomPanel.addSubview(addressContainer)
-        bottomPanel.addSubview(navigationStack)
-
-        view.addSubview(progressView)
-        view.addSubview(webContainer)
-        view.addSubview(homeView)
-        view.addSubview(bottomPanel)
-
-        bottomPanelBottomConstraint = bottomPanel.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-
-        NSLayoutConstraint.activate([
-            progressView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            progressView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            progressView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            progressView.heightAnchor.constraint(equalToConstant: 2),
-
-            webContainer.topAnchor.constraint(equalTo: view.topAnchor),
-            webContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            webContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            webContainer.bottomAnchor.constraint(equalTo: bottomPanel.topAnchor),
-
-            homeView.topAnchor.constraint(equalTo: view.topAnchor),
-            homeView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            homeView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            homeView.bottomAnchor.constraint(equalTo: bottomPanel.topAnchor),
-
-            bottomPanel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            bottomPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bottomPanelBottomConstraint!,
-
-            addressContainer.topAnchor.constraint(equalTo: bottomPanel.topAnchor, constant: 8),
-            addressContainer.leadingAnchor.constraint(equalTo: bottomPanel.leadingAnchor, constant: 16),
-            addressContainer.trailingAnchor.constraint(equalTo: bottomPanel.trailingAnchor, constant: -16),
-            addressContainer.heightAnchor.constraint(equalToConstant: 40),
-
-            lockIconView.leadingAnchor.constraint(equalTo: addressContainer.leadingAnchor, constant: 14),
-            lockIconView.centerYAnchor.constraint(equalTo: addressContainer.centerYAnchor),
-            lockIconView.widthAnchor.constraint(equalToConstant: 14),
-            lockIconView.heightAnchor.constraint(equalToConstant: 14),
-
-            inlineRefreshButton.trailingAnchor.constraint(equalTo: addressContainer.trailingAnchor, constant: -8),
-            inlineRefreshButton.centerYAnchor.constraint(equalTo: addressContainer.centerYAnchor),
-            inlineRefreshButton.widthAnchor.constraint(equalToConstant: 26),
-            inlineRefreshButton.heightAnchor.constraint(equalToConstant: 26),
-
-            addressField.leadingAnchor.constraint(equalTo: lockIconView.trailingAnchor, constant: 8),
-            addressField.trailingAnchor.constraint(equalTo: inlineRefreshButton.leadingAnchor, constant: -8),
-            addressField.topAnchor.constraint(equalTo: addressContainer.topAnchor),
-            addressField.bottomAnchor.constraint(equalTo: addressContainer.bottomAnchor),
-
-            navigationStack.topAnchor.constraint(equalTo: addressContainer.bottomAnchor, constant: 6),
-            navigationStack.leadingAnchor.constraint(equalTo: bottomPanel.leadingAnchor, constant: 8),
-            navigationStack.trailingAnchor.constraint(equalTo: bottomPanel.trailingAnchor, constant: -8),
-            navigationStack.bottomAnchor.constraint(equalTo: bottomPanel.safeAreaLayoutGuide.bottomAnchor, constant: -2),
-            navigationStack.heightAnchor.constraint(equalToConstant: 44)
-        ])
-    }
-
-    private func configurePillButton(_ button: UIButton, icon: String, action: Selector) {
-        var config = UIButton.Configuration.plain()
-        config.image = UIImage(systemName: icon)
-        config.baseForegroundColor = .label
-        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
-
-        button.configuration = config
-        button.addTarget(self, action: action, for: .touchUpInside)
+    private func configureFullscreenExitGesture() {
+        let edgeGesture = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleBottomEdgePan(_:)))
+        edgeGesture.edges = .bottom
+        edgeGesture.delegate = self
+        view.addGestureRecognizer(edgeGesture)
     }
 
     private func createNewTab(loadURL url: URL?) {
-        let newTab = TabItem()
-        newTab.delegate = self
-        tabs.append(newTab)
+        let tab = TabItem()
+        tab.delegate = self
+        tabs.append(tab)
         switchTab(to: tabs.count - 1)
 
-        if let url = url {
+        if let url {
             load(url: url)
         }
     }
 
     private func switchTab(to index: Int) {
-        guard index >= 0 && index < tabs.count else { return }
+        guard tabs.indices.contains(index) else {
+            return
+        }
 
-        activeTab.webView.removeFromSuperview()
+        if tabs.indices.contains(activeTabIndex) {
+            activeTab.webView.removeFromSuperview()
+        }
+
         activeTabIndex = index
 
-        let current = activeTab
-        current.webView.translatesAutoresizingMaskIntoConstraints = false
-        webContainer.addSubview(current.webView)
+        let tab = activeTab
+        tab.webView.translatesAutoresizingMaskIntoConstraints = false
+        webContainer.addSubview(tab.webView)
 
         NSLayoutConstraint.activate([
-            current.webView.topAnchor.constraint(equalTo: webContainer.topAnchor),
-            current.webView.leadingAnchor.constraint(equalTo: webContainer.leadingAnchor),
-            current.webView.trailingAnchor.constraint(equalTo: webContainer.trailingAnchor),
-            current.webView.bottomAnchor.constraint(equalTo: webContainer.bottomAnchor)
+            tab.webView.topAnchor.constraint(equalTo: webContainer.topAnchor),
+            tab.webView.leadingAnchor.constraint(equalTo: webContainer.leadingAnchor),
+            tab.webView.trailingAnchor.constraint(equalTo: webContainer.trailingAnchor),
+            tab.webView.bottomAnchor.constraint(equalTo: webContainer.bottomAnchor)
         ])
 
-        bindProgressObservation(for: current.webView)
+        bindProgressObservation(to: tab.webView)
 
-        if let currentURL = current.url {
+        if let url = tab.url {
             showBrowserUI()
-            addressField.text = currentURL.host ?? currentURL.absoluteString
+            addressField.text = url.host ?? url.absoluteString
         } else {
             showHomeUI()
         }
@@ -409,29 +483,42 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
     }
 
     private func closeTab(at index: Int) {
-        guard index >= 0 && index < tabs.count else { return }
+        guard tabs.indices.contains(index) else {
+            return
+        }
 
-        let targetTab = tabs[index]
-        targetTab.webView.removeFromSuperview()
+        let removedTab = tabs[index]
+        removedTab.webView.stopLoading()
+        removedTab.webView.removeFromSuperview()
         tabs.remove(at: index)
 
         if tabs.isEmpty {
+            activeTabIndex = 0
             createNewTab(loadURL: nil)
-        } else {
-            let nextIndex = min(index, tabs.count - 1)
-            switchTab(to: nextIndex)
+            return
         }
+
+        let nextIndex = min(index, tabs.count - 1)
+        activeTabIndex = min(activeTabIndex, tabs.count - 1)
+        switchTab(to: nextIndex)
     }
 
-    private func bindProgressObservation(for webView: WKWebView) {
+    private func bindProgressObservation(to webView: WKWebView) {
         progressObservation?.invalidate()
-        progressObservation = webView.observe(\.estimatedProgress, options: [.new]) { [weak self] webView, _ in
+
+        progressObservation = webView.observe(\.estimatedProgress, options: [.new]) { [weak self] observedWebView, _ in
             DispatchQueue.main.async {
-                guard let self = self else { return }
-                if webView.isLoading {
-                    self.progressView.alpha = 1
-                    self.progressView.setProgress(Float(webView.estimatedProgress), animated: true)
+                guard let self else {
+                    return
                 }
+
+                guard observedWebView.isLoading else {
+                    return
+                }
+
+                self.progressView.alpha = 1
+                self.progressView.setProgress(Float(observedWebView.estimatedProgress), animated: true)
+                self.view.bringSubviewToFront(self.progressView)
             }
         }
     }
@@ -458,25 +545,33 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
     }
 
     private func updateUIState() {
-        let isHome = homeView.alpha == 1
+        guard !tabs.isEmpty else {
+            return
+        }
+
+        let isHome = homeView.alpha > 0.5
+
         backButton.isEnabled = !isHome && activeTab.webView.canGoBack
         forwardButton.isEnabled = !isHome && activeTab.webView.canGoForward
-        moreButton.isEnabled = !isHome
+        moreButton.isEnabled = !isHome || isFullscreen
+        refreshButton.isEnabled = !isHome
 
-        let refreshIcon = activeTab.isLoading ? "xmark" : "arrow.clockwise"
-        inlineRefreshButton.setImage(UIImage(systemName: refreshIcon), for: .normal)
-
-        if isHome {
-            lockIconView.image = UIImage(systemName: "magnifyingglass")
-        } else {
-            let isSecure = activeTab.url?.scheme?.lowercased() == "https"
-            lockIconView.image = UIImage(systemName: isSecure ? "lock.fill" : "lock.open.fill")
-        }
+        let imageName = activeTab.isLoading ? "xmark" : "arrow.clockwise"
+        refreshButton.setImage(
+            UIImage(
+                systemName: imageName,
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 23, weight: .regular)
+            ),
+            for: .normal
+        )
     }
 
     private func destinationURL(from input: String) -> URL? {
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { return nil }
+
+        guard !value.isEmpty else {
+            return nil
+        }
 
         if value.hasPrefix("http://") || value.hasPrefix("https://") {
             return URL(string: value)
@@ -488,66 +583,238 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
         var components = URLComponents(string: "https://www.google.com/search")
         components?.queryItems = [URLQueryItem(name: "q", value: value)]
+
         return components?.url
     }
 
-    func tabDidUpdate(_ tab: TabItem) {
-        guard tab == activeTab else { return }
-        if let url = tab.url {
-            addressField.text = addressField.isFirstResponder ? url.absoluteString : (url.host ?? url.absoluteString)
+    private func setFullscreen(_ fullscreen: Bool) {
+        guard isFullscreen != fullscreen else {
+            return
         }
+
+        dismissKeyboard()
+
+        isFullscreen = fullscreen
+        bottomPanel.isHidden = fullscreen
+        progressView.isHidden = fullscreen
+
+        webTopSafeConstraint?.isActive = !fullscreen
+        webTopFullscreenConstraint?.isActive = fullscreen
+        webBottomPanelConstraint?.isActive = !fullscreen
+        webBottomFullscreenConstraint?.isActive = fullscreen
+
+        homeTopSafeConstraint?.isActive = !fullscreen
+        homeTopFullscreenConstraint?.isActive = fullscreen
+        homeBottomPanelConstraint?.isActive = !fullscreen
+        homeBottomFullscreenConstraint?.isActive = fullscreen
+
+        UIView.animate(withDuration: 0.2) {
+            self.view.layoutIfNeeded()
+        }
+
+        setNeedsStatusBarAppearanceUpdate()
+        setNeedsUpdateOfHomeIndicatorAutoHidden()
+    }
+
+    private func showLoadError(_ error: Error) {
+        let nsError = error as NSError
+
+        guard nsError.code != NSURLErrorCancelled else {
+            return
+        }
+
+        let alert = UIAlertController(
+            title: "无法访问页面",
+            message: nsError.localizedDescription,
+            preferredStyle: .alert
+        )
+
+        alert.addAction(UIAlertAction(title: "重试", style: .default) { [weak self] _ in
+            self?.activeTab.webView.reload()
+        })
+
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+
+        present(alert, animated: true)
+    }
+
+    private func updateAddressEditingAppearance() {
+        let isEditing = addressField.isFirstResponder
+        let hasText = !(addressField.text?.isEmpty ?? true)
+
+        clearButton.isHidden = !isEditing
+        refreshButton.isHidden = isEditing
+
+        UIView.animate(withDuration: 0.16) {
+            self.clearButton.alpha = isEditing ? 1 : 0
+            self.refreshButton.alpha = isEditing ? 0 : 1
+        }
+
+        if isEditing {
+            addressField.trailingAnchor.constraint(equalTo: clearButton.leadingAnchor, constant: -10).isActive = true
+        }
+
+        if !hasText {
+            clearButton.tintColor = UIColor(
+                red: 190.0 / 255.0,
+                green: 190.0 / 255.0,
+                blue: 195.0 / 255.0,
+                alpha: 1
+            )
+        } else {
+            clearButton.tintColor = UIColor(
+                red: 96.0 / 255.0,
+                green: 96.0 / 255.0,
+                blue: 101.0 / 255.0,
+                alpha: 1
+            )
+        }
+    }
+
+    func tabDidUpdate(_ tab: TabItem) {
+        guard !tabs.isEmpty, tab.id == activeTab.id else {
+            return
+        }
+
+        if let url = tab.url, !addressField.isFirstResponder {
+            addressField.text = url.host ?? url.absoluteString
+        }
+
         updateUIState()
 
         if !tab.isLoading {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                guard let self, !self.activeTab.isLoading else {
+                    return
+                }
+
                 UIView.animate(withDuration: 0.2) {
-                    self?.progressView.alpha = 0
+                    self.progressView.alpha = 0
                 }
             }
         }
     }
 
     func tabDidFail(_ tab: TabItem, error: Error) {
-        guard tab == activeTab else { return }
+        guard !tabs.isEmpty, tab.id == activeTab.id else {
+            return
+        }
+
         updateUIState()
-
-        let nsError = error as NSError
-        guard nsError.code != NSURLErrorCancelled else { return }
-
-        let alert = UIAlertController(title: "无法访问页面", message: nsError.localizedDescription, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "确定", style: .default))
-        present(alert, animated: true)
+        showLoadError(error)
     }
 
     func textFieldDidBeginEditing(_ textField: UITextField) {
         if let url = activeTab.url {
             textField.text = url.absoluteString
         }
-        addressField.textAlignment = .left
+
+        textField.textAlignment = .left
+        updateAddressEditingAppearance()
     }
 
     func textFieldDidEndEditing(_ textField: UITextField) {
         if let url = activeTab.url {
             textField.text = url.host ?? url.absoluteString
+        } else if textField.text?.isEmpty == true {
+            textField.text = ""
         }
-        addressField.textAlignment = .center
+
+        textField.textAlignment = .center
+        updateAddressEditingAppearance()
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        guard let text = textField.text, let url = destinationURL(from: text) else { return true }
+        guard let text = textField.text, let url = destinationURL(from: text) else {
+            return true
+        }
+
         textField.resignFirstResponder()
         load(url: url)
+
         return true
     }
 
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if touch.view?.isDescendant(of: addressContainer) == true {
+            return false
+        }
+
+        return true
+    }
+
+    @objc private func addressFieldDidChange() {
+        updateAddressEditingAppearance()
+    }
+
+    @objc private func clearAddressInput() {
+        addressField.text = ""
+        addressField.becomeFirstResponder()
+        updateAddressEditingAppearance()
+    }
+
+    @objc private func dismissKeyboard() {
+        view.endEditing(true)
+    }
+
+    @objc private func keyboardWillChangeFrame(_ notification: Notification) {
+        guard !isFullscreen,
+              let userInfo = notification.userInfo,
+              let keyboardFrame = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
+              let duration = userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval else {
+            return
+        }
+
+        let keyboardFrameInView = view.convert(keyboardFrame, from: nil)
+        let overlap = max(0, view.bounds.maxY - keyboardFrameInView.minY)
+        let safeBottomInset = view.safeAreaInsets.bottom
+        let offset = max(0, overlap - safeBottomInset)
+
+        let curve = userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
+        let options = UIView.AnimationOptions(rawValue: curve << 16)
+
+        bottomPanelBottomConstraint?.constant = -offset
+
+        UIView.animate(withDuration: duration, delay: 0, options: options) {
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    @objc private func keyboardWillHide(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let duration = userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval else {
+            return
+        }
+
+        let curve = userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
+        let options = UIView.AnimationOptions(rawValue: curve << 16)
+
+        bottomPanelBottomConstraint?.constant = 0
+
+        UIView.animate(withDuration: duration, delay: 0, options: options) {
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    @objc private func handleBottomEdgePan(_ gesture: UIScreenEdgePanGestureRecognizer) {
+        guard isFullscreen, gesture.state == .recognized || gesture.state == .ended else {
+            return
+        }
+
+        setFullscreen(false)
+    }
+
     @objc private func handleRefreshTap() {
-        if homeView.alpha == 1 { return }
+        guard homeView.alpha < 0.5 else {
+            return
+        }
 
         if activeTab.isLoading {
             activeTab.webView.stopLoading()
         } else {
             activeTab.webView.reload()
         }
+
         updateUIState()
     }
 
@@ -565,42 +832,65 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
     @objc private func showTabsManager() {
         dismissKeyboard()
+
         activeTab.updateSnapshot { [weak self] in
-            guard let self = self else { return }
+            guard let self else {
+                return
+            }
 
             let manager = TabGridViewController(tabs: self.tabs, activeIndex: self.activeTabIndex)
+
             manager.onSelectTab = { [weak self] index in
                 self?.switchTab(to: index)
             }
+
             manager.onCloseTab = { [weak self] index in
                 self?.closeTab(at: index)
             }
+
             manager.onNewTab = { [weak self] in
                 self?.createNewTab(loadURL: nil)
             }
 
-            let nav = UINavigationController(rootViewController: manager)
-            nav.modalPresentationStyle = .pageSheet
-            self.present(nav, animated: true)
+            let navigationController = UINavigationController(rootViewController: manager)
+            navigationController.modalPresentationStyle = .pageSheet
+            self.present(navigationController, animated: true)
         }
     }
 
     @objc private func showMoreMenu() {
         dismissKeyboard()
+
         let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+
+        alert.addAction(
+            UIAlertAction(
+                title: isFullscreen ? "退出全屏浏览" : "全屏浏览",
+                style: .default
+            ) { [weak self] _ in
+                guard let self else {
+                    return
+                }
+
+                self.setFullscreen(!self.isFullscreen)
+            }
+        )
 
         if let url = activeTab.url {
             alert.addAction(UIAlertAction(title: "复制链接", style: .default) { _ in
                 UIPasteboard.general.url = url
             })
 
-            alert.addAction(UIAlertAction(title: "在 Safari 打开", style: .default) { _ in
+            alert.addAction(UIAlertAction(title: "在 Safari 中打开", style: .default) { _ in
                 UIApplication.shared.open(url)
             })
         }
 
         alert.addAction(UIAlertAction(title: "清除缓存", style: .destructive) { [weak self] _ in
-            WKWebsiteDataStore.default().removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast) {
+            WKWebsiteDataStore.default().removeData(
+                ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
+                modifiedSince: .distantPast
+            ) {
                 self?.activeTab.webView.reload()
             }
         })
@@ -626,17 +916,20 @@ final class TabGridViewController: UIViewController, UICollectionViewDataSource,
         super.init(nibName: nil, bundle: nil)
     }
 
-    required init?(coder: NSCoder) { nil }
+    required init?(coder: NSCoder) {
+        nil
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
+
         title = "标签页"
         view.backgroundColor = .systemGroupedBackground
 
         let layout = UICollectionViewFlowLayout()
         layout.minimumInteritemSpacing = 12
         layout.minimumLineSpacing = 16
-        layout.sectionInset = UIEdgeInsets(top: 16, left: 16, bottom: 80, right: 16)
+        layout.sectionInset = UIEdgeInsets(top: 16, left: 16, bottom: 88, right: 16)
 
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         collectionView.translatesAutoresizingMaskIntoConstraints = false
@@ -646,15 +939,19 @@ final class TabGridViewController: UIViewController, UICollectionViewDataSource,
         collectionView.register(TabGridCell.self, forCellWithReuseIdentifier: "TabGridCell")
 
         addButton.translatesAutoresizingMaskIntoConstraints = false
-        var config = UIButton.Configuration.filled()
-        config.image = UIImage(systemName: "plus")
-        config.cornerStyle = .capsule
-        config.baseBackgroundColor = .systemBlue
-        config.baseForegroundColor = .white
-        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 22, weight: .medium)
-        addButton.configuration = config
+
+        var configuration = UIButton.Configuration.filled()
+        configuration.image = UIImage(
+            systemName: "plus",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 22, weight: .medium)
+        )
+        configuration.cornerStyle = .capsule
+        configuration.baseBackgroundColor = .systemBlue
+        configuration.baseForegroundColor = .white
+
+        addButton.configuration = configuration
         addButton.layer.shadowColor = UIColor.black.cgColor
-        addButton.layer.shadowOpacity = 0.15
+        addButton.layer.shadowOpacity = 0.12
         addButton.layer.shadowRadius = 10
         addButton.layer.shadowOffset = CGSize(width: 0, height: 4)
         addButton.addTarget(self, action: #selector(handleNewTab), for: .touchUpInside)
@@ -690,11 +987,14 @@ final class TabGridViewController: UIViewController, UICollectionViewDataSource,
         _ collectionView: UICollectionView,
         cellForItemAt indexPath: IndexPath
     ) -> UICollectionViewCell {
-        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "TabGridCell", for: indexPath) as! TabGridCell
-        let tab = tabs[indexPath.item]
-        let isActive = indexPath.item == activeIndex
+        let cell = collectionView.dequeueReusableCell(
+            withReuseIdentifier: "TabGridCell",
+            for: indexPath
+        ) as! TabGridCell
 
-        cell.configure(tab: tab, isActive: isActive)
+        let tab = tabs[indexPath.item]
+        cell.configure(tab: tab, isActive: indexPath.item == activeIndex)
+
         cell.onClose = { [weak self] in
             self?.closeTab(at: indexPath.item)
         }
@@ -717,9 +1017,12 @@ final class TabGridViewController: UIViewController, UICollectionViewDataSource,
     }
 
     private func closeTab(at index: Int) {
-        guard index >= 0 && index < tabs.count else { return }
+        guard tabs.indices.contains(index) else {
+            return
+        }
 
         tabs.remove(at: index)
+
         if activeIndex == index {
             activeIndex = max(0, index - 1)
         } else if activeIndex > index {
@@ -746,10 +1049,10 @@ final class TabGridViewController: UIViewController, UICollectionViewDataSource,
 }
 
 final class TabGridCell: UICollectionViewCell {
+    private let headerView = UIView()
+    private let thumbnailView = UIImageView()
     private let titleLabel = UILabel()
     private let closeButton = UIButton(type: .system)
-    private let thumbnailView = UIImageView()
-    private let headerView = UIView()
 
     var onClose: (() -> Void)?
 
@@ -759,27 +1062,34 @@ final class TabGridCell: UICollectionViewCell {
         contentView.backgroundColor = .secondarySystemGroupedBackground
         contentView.layer.cornerRadius = 14
         contentView.layer.masksToBounds = true
-        contentView.layer.borderWidth = 1
 
         headerView.translatesAutoresizingMaskIntoConstraints = false
         headerView.backgroundColor = .secondarySystemGroupedBackground
-
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        titleLabel.textColor = .label
-
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
-        closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
-        closeButton.tintColor = .secondaryLabel
-        closeButton.addTarget(self, action: #selector(handleClose), for: .touchUpInside)
 
         thumbnailView.translatesAutoresizingMaskIntoConstraints = false
         thumbnailView.contentMode = .scaleAspectFill
         thumbnailView.clipsToBounds = true
         thumbnailView.backgroundColor = .systemBackground
 
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        titleLabel.textColor = .label
+        titleLabel.lineBreakMode = .byTruncatingTail
+
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.tintColor = .secondaryLabel
+        closeButton.setImage(
+            UIImage(
+                systemName: "xmark.circle.fill",
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .regular)
+            ),
+            for: .normal
+        )
+        closeButton.addTarget(self, action: #selector(handleClose), for: .touchUpInside)
+
         headerView.addSubview(titleLabel)
         headerView.addSubview(closeButton)
+
         contentView.addSubview(headerView)
         contentView.addSubview(thumbnailView)
 
@@ -787,13 +1097,13 @@ final class TabGridCell: UICollectionViewCell {
             headerView.topAnchor.constraint(equalTo: contentView.topAnchor),
             headerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             headerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            headerView.heightAnchor.constraint(equalToConstant: 32),
+            headerView.heightAnchor.constraint(equalToConstant: 34),
 
             titleLabel.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 10),
-            titleLabel.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -4),
+            titleLabel.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -6),
             titleLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
 
-            closeButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -6),
+            closeButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -7),
             closeButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
             closeButton.widthAnchor.constraint(equalToConstant: 24),
             closeButton.heightAnchor.constraint(equalToConstant: 24),
@@ -805,18 +1115,15 @@ final class TabGridCell: UICollectionViewCell {
         ])
     }
 
-    required init?(coder: NSCoder) { nil }
+    required init?(coder: NSCoder) {
+        nil
+    }
 
     func configure(tab: TabItem, isActive: Bool) {
         titleLabel.text = tab.title
+        thumbnailView.image = tab.snapshot
+        contentView.layer.borderWidth = isActive ? 2 : 0
         contentView.layer.borderColor = isActive ? UIColor.systemBlue.cgColor : UIColor.clear.cgColor
-        contentView.layer.borderWidth = isActive ? 2.0 : 0.0
-
-        if let snapshot = tab.snapshot {
-            thumbnailView.image = snapshot
-        } else {
-            thumbnailView.image = nil
-        }
     }
 
     @objc private func handleClose() {
