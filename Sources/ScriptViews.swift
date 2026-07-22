@@ -1,478 +1,844 @@
 import UIKit
 import WebKit
 
-@main
-final class AppDelegate: UIResponder, UIApplicationDelegate {
-    var window: UIWindow?
+struct MenuSheetItem {
+    let title: String
+    let style: UIAlertAction.Style
+    let handler: (() -> Void)?
+}
 
-    func application(
-        _ application: UIApplication,
-        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
-    ) -> Bool {
-        let window = UIWindow(frame: UIScreen.main.bounds)
-        window.rootViewController = BrowserViewController()
-        window.makeKeyAndVisible()
-        self.window = window
-        return true
+final class MenuSheetViewController: UITableViewController {
+    private var items: [MenuSheetItem] = []
+    private var headerTitle: String?
+
+    init(title: String? = nil, items: [MenuSheetItem]) {
+        self.headerTitle = title
+        self.items = items
+        super.init(style: .insetGrouped)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        self.title = headerTitle
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "MenuItemCell")
+    }
+
+    override func numberOfSections(in tableView: UITableView) -> Int {
+        return 1
+    }
+
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return items.count
+    }
+
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "MenuItemCell", for: indexPath)
+        let item = items[indexPath.row]
+        var config = cell.defaultContentConfiguration()
+        config.text = item.title
+        config.textProperties.alignment = .center
+        if item.style == .destructive {
+            config.textProperties.color = .systemRed
+        } else {
+            config.textProperties.color = .label
+        }
+        cell.contentConfiguration = config
+        return cell
+    }
+
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        let item = items[indexPath.row]
+        dismiss(animated: true) {
+            item.handler?()
+        }
     }
 }
 
-final class TouchButton: UIButton {
-    private let hapticGenerator = UIImpactFeedbackGenerator(style: .light)
+final class UserAgentManagerViewController: UITableViewController {
+    private var items: [UserAgentItem] = []
+    private var selectedId: String = ""
+    var onUASelected: ((String) -> Void)?
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        setupFeedback()
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = "浏览器标识"
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "UACell")
+
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            image: UIImage(systemName: "plus"),
+            style: .plain,
+            target: self,
+            action: #selector(handleAddCustomUA)
+        )
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            title: "完成",
+            style: .done,
+            target: self,
+            action: #selector(handleDone)
+        )
+
+        loadData()
+    }
+
+    private func loadData() {
+        items = UserAgentStore.shared.loadAllItems()
+        selectedId = UserAgentStore.shared.getSelectedId()
+        tableView.reloadData()
+    }
+
+    @objc private func handleDone() {
+        dismiss(animated: true)
+    }
+
+    @objc private func handleAddCustomUA() {
+        let alert = UIAlertController(title: "添加自定义标识", message: nil, preferredStyle: .alert)
+        alert.addTextField { tf in tf.placeholder = "标识名称" }
+        alert.addTextField { tf in tf.placeholder = "User-Agent 字符串" }
+
+        alert.addAction(UIAlertAction(title: "添加", style: .default) { [weak self] _ in
+            guard let name = alert.textFields?[0].text?.trimmingCharacters(in: .whitespaces), !name.isEmpty,
+                  let ua = alert.textFields?[1].text?.trimmingCharacters(in: .whitespaces), !ua.isEmpty else { return }
+
+            UserAgentStore.shared.addCustomItem(name: name, uaString: ua)
+            self?.loadData()
+        })
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        present(alert, animated: true)
+    }
+
+    private func showEditUAAlert(item: UserAgentItem) {
+        let alert = UIAlertController(title: "编辑标识", message: nil, preferredStyle: .alert)
+        alert.addTextField { tf in
+            tf.placeholder = "标识名称"
+            tf.text = item.name
+        }
+        alert.addTextField { tf in
+            tf.placeholder = "User-Agent 字符串"
+            tf.text = item.uaString
+        }
+
+        alert.addAction(UIAlertAction(title: "保存", style: .default) { [weak self] _ in
+            guard let name = alert.textFields?[0].text?.trimmingCharacters(in: .whitespaces), !name.isEmpty,
+                  let ua = alert.textFields?[1].text?.trimmingCharacters(in: .whitespaces), !ua.isEmpty else { return }
+
+            if item.isCustom {
+                UserAgentStore.shared.updateCustomItem(id: item.id, name: name, uaString: ua)
+            } else {
+                UserAgentStore.shared.addCustomItem(name: name, uaString: ua)
+            }
+            self?.loadData()
+            let currentUA = UserAgentStore.shared.getSelectedUA()
+            self?.onUASelected?(currentUA)
+        })
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        present(alert, animated: true)
+    }
+
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return items.count
+    }
+
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "UACell", for: indexPath)
+        let item = items[indexPath.row]
+
+        var content = cell.defaultContentConfiguration()
+        content.text = item.name
+        cell.contentConfiguration = content
+
+        cell.accessoryType = item.id == selectedId ? .checkmark : .none
+        return cell
+    }
+
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        let item = items[indexPath.row]
+        selectedId = item.id
+        UserAgentStore.shared.setSelectedId(item.id)
+        tableView.reloadData()
+
+        onUASelected?(item.uaString)
+        dismiss(animated: true)
+    }
+
+    override func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        let item = items[indexPath.row]
+
+        let editAction = UIContextualAction(style: .normal, title: "编辑") { [weak self] _, _, completion in
+            self?.showEditUAAlert(item: item)
+            completion(true)
+        }
+        editAction.backgroundColor = .systemBlue
+
+        if item.isCustom {
+            let deleteAction = UIContextualAction(style: .destructive, title: "删除") { [weak self] _, _, completion in
+                UserAgentStore.shared.deleteCustomItem(id: item.id)
+                self?.loadData()
+                let currentUA = UserAgentStore.shared.getSelectedUA()
+                self?.onUASelected?(currentUA)
+                completion(true)
+            }
+            return UISwipeActionsConfiguration(actions: [deleteAction, editAction])
+        } else {
+            return UISwipeActionsConfiguration(actions: [editAction])
+        }
+    }
+}
+
+enum CleanOption: Hashable {
+    case cache
+    case cookies
+    case searchHistory
+    case scriptData
+}
+
+final class CleanDataSelectionViewController: UITableViewController {
+    private var selectedOptions: Set<CleanOption> = [.cache, .cookies]
+    var onConfirmClean: ((Set<CleanOption>) -> Void)?
+    var onOpenWebsiteDataManager: (() -> Void)?
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = "清除数据"
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "CleanCell")
+        navigationItem.rightBarButtonItem = UIBarButtonItem(title: "完成", style: .done, target: self, action: #selector(handleConfirm))
+    }
+
+    @objc private func handleConfirm() {
+        let opts = selectedOptions
+        dismiss(animated: true) { [weak self] in
+            self?.onConfirmClean?(opts)
+        }
+    }
+
+    override func numberOfSections(in tableView: UITableView) -> Int {
+        return 3
+    }
+
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        if section == 0 { return 4 }
+        return 1
+    }
+
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+
+        if indexPath.section == 0 {
+            let option: CleanOption
+            switch indexPath.row {
+            case 0:
+                cell.textLabel?.text = "网页缓存文件"
+                option = .cache
+            case 1:
+                cell.textLabel?.text = "Cookie 数据 (保留锁定保护项)"
+                option = .cookies
+            case 2:
+                cell.textLabel?.text = "搜索历史记录"
+                option = .searchHistory
+            default:
+                cell.textLabel?.text = "用户脚本缓存数据"
+                option = .scriptData
+            }
+
+            let isChecked = selectedOptions.contains(option)
+            cell.accessoryType = isChecked ? .checkmark : .none
+        } else if indexPath.section == 1 {
+            cell.textLabel?.text = "确认清除"
+            cell.textLabel?.textColor = .systemRed
+            cell.textLabel?.textAlignment = .center
+        } else {
+            cell.textLabel?.text = "管理网站数据"
+            cell.textLabel?.textColor = .systemBlue
+            cell.textLabel?.textAlignment = .center
+        }
+
+        return cell
+    }
+
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+
+        if indexPath.section == 0 {
+            let option: CleanOption
+            switch indexPath.row {
+            case 0: option = .cache
+            case 1: option = .cookies
+            case 2: option = .searchHistory
+            default: option = .scriptData
+            }
+
+            if selectedOptions.contains(option) {
+                selectedOptions.remove(option)
+            } else {
+                selectedOptions.insert(option)
+            }
+            tableView.reloadRows(at: [indexPath], with: .automatic)
+        } else if indexPath.section == 1 {
+            handleConfirm()
+        } else {
+            dismiss(animated: true) { [weak self] in
+                self?.onOpenWebsiteDataManager?()
+            }
+        }
+    }
+}
+
+final class DomainSettingsViewController: UITableViewController {
+    private let domain: String
+    var onSettingsChanged: (() -> Void)?
+    var onExtractText: (() -> Void)?
+
+    init(domain: String, onSettingsChanged: (() -> Void)?) {
+        self.domain = domain
+        self.onSettingsChanged = onSettingsChanged
+        super.init(style: .insetGrouped)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = domain
+        navigationItem.rightBarButtonItem = UIBarButtonItem(title: "完成", style: .done, target: self, action: #selector(handleDone))
+    }
+
+    @objc private func handleDone() {
+        dismiss(animated: true)
+    }
+
+    override func numberOfSections(in tableView: UITableView) -> Int {
+        return 2
+    }
+
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return section == 0 ? 3 : 1
+    }
+
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+
+        if indexPath.section == 0 {
+            let switchView = UISwitch()
+            switchView.tag = indexPath.row
+
+            if indexPath.row == 0 {
+                cell.textLabel?.text = "视频悬窗 (后续功能)"
+                switchView.isOn = DomainSettingsStore.shared.getBool(domain: domain, setting: "videoPopout", defaultVal: false)
+                switchView.isEnabled = false
+            } else if indexPath.row == 1 {
+                cell.textLabel?.text = "广告过滤 (后续功能)"
+                switchView.isOn = DomainSettingsStore.shared.getBool(domain: domain, setting: "adBlock", defaultVal: false)
+                switchView.isEnabled = false
+            } else if indexPath.row == 2 {
+                cell.textLabel?.text = "用户脚本"
+                switchView.isOn = DomainSettingsStore.shared.getBool(domain: domain, setting: "userScripts", defaultVal: true)
+                switchView.addTarget(self, action: #selector(handleSwitchChanged(_:)), for: .valueChanged)
+            }
+            cell.accessoryView = switchView
+        } else {
+            cell.textLabel?.text = "获取网页所有文字"
+            cell.textLabel?.textColor = .systemBlue
+            cell.textLabel?.textAlignment = .center
+        }
+
+        return cell
+    }
+
+    @objc private func handleSwitchChanged(_ sender: UISwitch) {
+        if sender.tag == 2 {
+            DomainSettingsStore.shared.setBool(domain: domain, setting: "userScripts", value: sender.isOn)
+            onSettingsChanged?()
+        }
+    }
+
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        if indexPath.section == 1 {
+            dismiss(animated: true) { [weak self] in
+                self?.onExtractText?()
+            }
+        }
+    }
+}
+
+final class WebsiteDataManagerViewController: UITableViewController {
+    private var records: [WKWebsiteDataRecord] = []
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = "管理网站数据"
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "DataRecordCell")
+
+        navigationItem.leftBarButtonItem = UIBarButtonItem(title: "返回", style: .plain, target: self, action: #selector(handleDone))
+        navigationItem.rightBarButtonItem = UIBarButtonItem(title: "移除", style: .plain, target: self, action: #selector(handleRemoveAll))
+        loadData()
+    }
+
+    private func loadData() {
+        let types = WKWebsiteDataStore.allWebsiteDataTypes()
+        WKWebsiteDataStore.default().fetchDataRecords(ofTypes: types) { [weak self] records in
+            DispatchQueue.main.async {
+                self?.records = records.sorted { $0.displayName < $1.displayName }
+                self?.tableView.reloadData()
+            }
+        }
+    }
+
+    @objc private func handleDone() {
+        dismiss(animated: true)
+    }
+
+    @objc private func handleRemoveAll() {
+        let alert = UIAlertController(title: "移除网站数据", message: "确定要移除所有未受锁定保护的网站数据吗？", preferredStyle: .actionSheet)
+        alert.addAction(UIAlertAction(title: "移除全部", style: .destructive) { [weak self] _ in
+            guard let self = self else { return }
+            let unlockedRecords = self.records.filter { !CookieLockStore.shared.isLocked(domain: $0.displayName) }
+            let types = WKWebsiteDataStore.allWebsiteDataTypes()
+            WKWebsiteDataStore.default().removeData(ofTypes: types, for: unlockedRecords) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    self.loadData()
+                }
+            }
+        })
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        present(alert, animated: true)
+    }
+
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return records.count
+    }
+
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: "DataRecordCell")
+        let record = records[indexPath.row]
+        let isLocked = CookieLockStore.shared.isLocked(domain: record.displayName)
+
+        var content = cell.defaultContentConfiguration()
+        content.text = record.displayName + (isLocked ? " 🔒" : "")
+
+        var dataTypesDescs: [String] = []
+        if record.dataTypes.contains(WKWebsiteDataTypeCookies) { dataTypesDescs.append("Cookies") }
+        if record.dataTypes.contains(WKWebsiteDataTypeDiskCache) || record.dataTypes.contains(WKWebsiteDataTypeMemoryCache) { dataTypesDescs.append("磁盘缓存") }
+        if record.dataTypes.contains(WKWebsiteDataTypeLocalStorage) { dataTypesDescs.append("本地存储") }
+
+        content.secondaryText = dataTypesDescs.joined(separator: ", ")
+        cell.contentConfiguration = content
+        return cell
+    }
+
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        let record = records[indexPath.row]
+        let isLocked = CookieLockStore.shared.isLocked(domain: record.displayName)
+
+        let alert = UIAlertController(title: record.displayName, message: nil, preferredStyle: .actionSheet)
+        alert.addAction(UIAlertAction(title: isLocked ? "🔓 解除 Cookie 锁定" : "🔒 锁定 Cookie 防误删", style: .default) { [weak self] _ in
+            CookieLockStore.shared.toggleLock(domain: record.displayName)
+            self?.tableView.reloadData()
+        })
+        alert.addAction(UIAlertAction(title: "🗑 删除此网站数据", style: .destructive) { [weak self] _ in
+            let types = WKWebsiteDataStore.allWebsiteDataTypes()
+            WKWebsiteDataStore.default().removeData(ofTypes: types, for: [record]) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    self?.loadData()
+                }
+            }
+        })
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        present(alert, animated: true)
+    }
+
+    override func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath) {
+        if editingStyle == .delete {
+            let record = records[indexPath.row]
+            let types = WKWebsiteDataStore.allWebsiteDataTypes()
+            WKWebsiteDataStore.default().removeData(ofTypes: types, for: [record]) { [weak self] in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    self?.records.remove(at: indexPath.row)
+                    tableView.deleteRows(at: [indexPath], with: .automatic)
+                }
+            }
+        }
+    }
+}
+
+final class CookieLockManagerViewController: UITableViewController {
+    private var lockedDomains: [String] = []
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = "Cookie 锁定保护列表"
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "LockCell")
+
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            title: "完成",
+            style: .done,
+            target: self,
+            action: #selector(handleDone)
+        )
+        loadData()
+    }
+
+    private func loadData() {
+        lockedDomains = CookieLockStore.shared.getLockedDomains()
+        tableView.reloadData()
+    }
+
+    @objc private func handleDone() {
+        dismiss(animated: true)
+    }
+
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        lockedDomains.count
+    }
+
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "LockCell", for: indexPath)
+        let domain = lockedDomains[indexPath.row]
+
+        var content = cell.defaultContentConfiguration()
+        content.text = "🔒 " + domain
+        content.secondaryText = "在清理 Cookie 时将受到强保护不被删除"
+        cell.contentConfiguration = content
+
+        return cell
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        commit editingStyle: UITableViewCell.EditingStyle,
+        forRowAt indexPath: IndexPath
+    ) {
+        if editingStyle == .delete {
+            let domain = lockedDomains[indexPath.row]
+            CookieLockStore.shared.toggleLock(domain: domain)
+            lockedDomains.remove(at: indexPath.row)
+            tableView.deleteRows(at: [indexPath], with: .automatic)
+        }
+    }
+}
+
+final class UserScriptManagerViewController: UITableViewController {
+    private var scripts: [UserScript] = []
+    var onScriptsUpdated: (() -> Void)?
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = "油猴脚本扩展"
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "ScriptCell")
+
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            image: UIImage(systemName: "plus"),
+            style: .plain,
+            target: self,
+            action: #selector(handleAddScript)
+        )
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            title: "完成",
+            style: .done,
+            target: self,
+            action: #selector(handleDone)
+        )
+
+        loadData()
+    }
+
+    private func loadData() {
+        scripts = UserScriptStore.shared.loadScripts()
+        tableView.reloadData()
+    }
+
+    @objc private func handleAddScript() {
+        let editor = UserScriptEditorViewController(script: nil)
+        editor.onSave = { [weak self] newScript in
+            self?.scripts.append(newScript)
+            UserScriptStore.shared.saveScripts(self?.scripts ?? [])
+            self?.tableView.reloadData()
+            self?.onScriptsUpdated?()
+        }
+        let nav = UINavigationController(rootViewController: editor)
+        present(nav, animated: true)
+    }
+
+    @objc private func handleDone() {
+        dismiss(animated: true)
+    }
+
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        scripts.count
+    }
+
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "ScriptCell", for: indexPath)
+        let script = scripts[indexPath.row]
+
+        var content = cell.defaultContentConfiguration()
+        content.text = script.name
+        content.secondaryText = "匹配: \(script.matchPattern)"
+        cell.contentConfiguration = content
+
+        let toggle = UISwitch()
+        toggle.isOn = script.isEnabled
+        toggle.tag = indexPath.row
+        toggle.addTarget(self, action: #selector(handleToggle(_:)), for: .valueChanged)
+        cell.accessoryView = toggle
+
+        return cell
+    }
+
+    @objc private func handleToggle(_ sender: UISwitch) {
+        let index = sender.tag
+        scripts[index].isEnabled = sender.isOn
+        UserScriptStore.shared.saveScripts(scripts)
+        onScriptsUpdated?()
+    }
+
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        let script = scripts[indexPath.row]
+        let editor = UserScriptEditorViewController(script: script)
+        editor.onSave = { [weak self] updatedScript in
+            self?.scripts[indexPath.row] = updatedScript
+            UserScriptStore.shared.saveScripts(self?.scripts ?? [])
+            self?.tableView.reloadData()
+            self?.onScriptsUpdated?()
+        }
+        let nav = UINavigationController(rootViewController: editor)
+        present(nav, animated: true)
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        commit editingStyle: UITableViewCell.EditingStyle,
+        forRowAt indexPath: IndexPath
+    ) {
+        if editingStyle == .delete {
+            let script = scripts[indexPath.row]
+            ScriptDataStore.shared.clearDataForScript(scriptId: script.id)
+            scripts.remove(at: indexPath.row)
+            UserScriptStore.shared.saveScripts(scripts)
+            tableView.deleteRows(at: [indexPath], with: .automatic)
+            onScriptsUpdated?()
+        }
+    }
+}
+
+final class UserScriptEditorViewController: UIViewController {
+    private var script: UserScript?
+    var onSave: ((UserScript) -> Void)?
+
+    private let nameField = UITextField()
+    private let matchField = UITextField()
+    private let textView = UITextView()
+
+    init(script: UserScript?) {
+        self.script = script
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = script == nil ? "新建油猴脚本" : "编辑脚本"
+        view.backgroundColor = .systemBackground
+
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            title: "保存",
+            style: .done,
+            target: self,
+            action: #selector(handleSave)
+        )
+        navigationItem.leftBarButtonItem = UIBarButtonItem(
+            title: "取消",
+            style: .plain,
+            target: self,
+            action: #selector(handleCancel)
+        )
+
+        nameField.translatesAutoresizingMaskIntoConstraints = false
+        nameField.borderStyle = .roundedRect
+        nameField.placeholder = "脚本名称"
+        nameField.text = script?.name ?? ""
+
+        matchField.translatesAutoresizingMaskIntoConstraints = false
+        matchField.borderStyle = .roundedRect
+        matchField.placeholder = "匹配域名规则 (如 * 或 google.com)"
+        matchField.text = script?.matchPattern ?? "*"
+
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        textView.layer.borderWidth = 0.5
+        textView.layer.borderColor = UIColor.separator.cgColor
+        textView.layer.cornerRadius = 8
+        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.autocapitalizationType = .none
+        textView.autocorrectionType = .no
+        textView.text = script?.code ?? "// ==UserScript==\n// @name         自定义油猴脚本\n// @match        *\n// ==/UserScript==\n\n(function() {\n    'use strict';\n})();"
+
+        view.addSubview(nameField)
+        view.addSubview(matchField)
+        view.addSubview(textView)
+
+        NSLayoutConstraint.activate([
+            nameField.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            nameField.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            nameField.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            nameField.heightAnchor.constraint(equalToConstant: 38),
+
+            matchField.topAnchor.constraint(equalTo: nameField.bottomAnchor, constant: 8),
+            matchField.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            matchField.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            matchField.heightAnchor.constraint(equalToConstant: 38),
+
+            textView.topAnchor.constraint(equalTo: matchField.bottomAnchor, constant: 12),
+            textView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            textView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            textView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
+        ])
+    }
+
+    @objc private func handleSave() {
+        let codeText = textView.text ?? ""
+        var nameText = nameField.text?.trimmingCharacters(in: .whitespaces) ?? ""
+        var matchText = matchField.text?.trimmingCharacters(in: .whitespaces) ?? ""
+
+        let parsed = UserScriptStore.shared.parseMetadata(from: codeText)
+        if nameText.isEmpty { nameText = parsed.name }
+        if matchText.isEmpty { matchText = parsed.match }
+
+        let item = UserScript(
+            id: script?.id ?? UUID().uuidString,
+            name: nameText,
+            matchPattern: matchText,
+            code: codeText,
+            isEnabled: script?.isEnabled ?? true
+        )
+
+        onSave?(item)
+        dismiss(animated: true)
+    }
+
+    @objc private func handleCancel() {
+        dismiss(animated: true)
+    }
+}
+
+final class TabGridViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
+    private var tabs: [TabItem]
+    private var activeIndex: Int
+    private var collectionView: UICollectionView!
+    private let addButton = TouchButton(type: .system)
+
+    var onSelectTab: ((Int) -> Void)?
+    var onCloseTab: ((Int) -> Void)?
+    var onNewTab: (() -> Void)?
+
+    init(tabs: [TabItem], activeIndex: Int) {
+        self.tabs = tabs
+        self.activeIndex = activeIndex
+        super.init(nibName: nil, bundle: nil)
     }
 
     required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setupFeedback()
-    }
-
-    private func setupFeedback() {
-        addTarget(self, action: #selector(handleTouchDown), for: .touchDown)
-        addTarget(self, action: #selector(handleTouchUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
-    }
-
-    @objc private func handleTouchDown() {
-        hapticGenerator.impactOccurred()
-        UIView.animate(withDuration: 0.08) {
-            self.transform = CGAffineTransform(scaleX: 0.88, y: 0.88)
-        }
-    }
-
-    @objc private func handleTouchUp() {
-        UIView.animate(withDuration: 0.12) {
-            self.transform = .identity
-        }
-    }
-}
-
-final class BrowserViewController: UIViewController, UITextFieldDelegate, TabItemDelegate, UIGestureRecognizerDelegate {
-    private var tabs: [TabItem] = []
-    private var activeTabIndex = 0
-    private var isFullscreen = false
-    private var progressObservation: NSKeyValueObservation?
-
-    private var activeTab: TabItem {
-        tabs[activeTabIndex]
-    }
-
-    private let webContainer = UIView()
-    private let homeView = UIView()
-    private let bottomPanel = UIView()
-    private let addressContainer = UIView()
-    private let siteSettingsButton = TouchButton(type: .system)
-    private let addressField = UITextField()
-    private let refreshButton = TouchButton(type: .system)
-    private let clearButton = TouchButton(type: .system)
-    private let progressView = UIProgressView(progressViewStyle: .default)
-
-    private let navigationStack = UIStackView()
-    private let backButton = TouchButton(type: .system)
-    private let forwardButton = TouchButton(type: .system)
-    private let pluginButton = TouchButton(type: .system)
-    private let tabsButton = TouchButton(type: .system)
-    private let moreButton = TouchButton(type: .system)
-
-    private var bottomPanelBottomConstraint: NSLayoutConstraint?
-    private var webTopSafeConstraint: NSLayoutConstraint?
-    private var webTopFullscreenConstraint: NSLayoutConstraint?
-    private var webBottomPanelConstraint: NSLayoutConstraint?
-    private var webBottomFullscreenConstraint: NSLayoutConstraint?
-
-    private let softWhiteBg = UIColor(red: 246.0 / 255.0, green: 246.0 / 255.0, blue: 244.0 / 255.0, alpha: 1.0)
-    private let softCardWhiteBg = UIColor(red: 250.0 / 255.0, green: 250.0 / 255.0, blue: 247.0 / 255.0, alpha: 1.0)
-
-    override var preferredStatusBarStyle: UIStatusBarStyle {
-        .darkContent
-    }
-
-    override var prefersStatusBarHidden: Bool {
-        isFullscreen
-    }
-
-    override var prefersHomeIndicatorAutoHidden: Bool {
-        isFullscreen
+        nil
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        configureInterface()
-        configureKeyboardObservers()
-        configureKeyboardDismissal()
-        configureFullscreenExitGesture()
-        configureInstallerObserver()
-        createNewTab(loadURL: nil)
 
-        DispatchQueue.main.async { [weak self] in
-            EyeProtectionManager.shared.restoreState(in: self?.view.window)
+        title = "标签页"
+        view.backgroundColor = .systemGroupedBackground
+
+        let layout = UICollectionViewFlowLayout()
+        layout.minimumInteritemSpacing = 12
+        layout.minimumLineSpacing = 16
+        layout.sectionInset = UIEdgeInsets(top: 16, left: 16, bottom: 88, right: 16)
+
+        collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        collectionView.translatesAutoresizingMaskIntoConstraints = false
+        collectionView.backgroundColor = .clear
+        collectionView.dataSource = self
+        collectionView.delegate = self
+        collectionView.register(TabGridCell.self, forCellWithReuseIdentifier: "TabGridCell")
+
+        addButton.translatesAutoresizingMaskIntoConstraints = false
+
+        var configuration = UIButton.Configuration.filled()
+        configuration.image = UIImage(
+            systemName: "plus",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
+        )
+        configuration.cornerStyle = .capsule
+        configuration.baseBackgroundColor = .systemBlue
+        configuration.baseForegroundColor = .white
+
+        addButton.configuration = configuration
+        addButton.layer.shadowColor = UIColor.black.cgColor
+        addButton.layer.shadowOpacity = 0.1
+        addButton.layer.shadowRadius = 8
+        addButton.layer.shadowOffset = CGSize(width: 0, height: 3)
+        addButton.addTarget(self, action: #selector(handleNewTab), for: .touchUpInside)
+
+        view.addSubview(collectionView)
+        view.addSubview(addButton)
+
+        NSLayoutConstraint.activate([
+            collectionView.topAnchor.constraint(equalTo: view.topAnchor),
+            collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            addButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            addButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            addButton.widthAnchor.constraint(equalToConstant: 48),
+            addButton.heightAnchor.constraint(equalToConstant: 48)
+        ])
+
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            title: "完成",
+            style: .done,
+            target: self,
+            action: #selector(handleDone)
+        )
+    }
+
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        tabs.count
+    }
+
+    func collectionView(
+        _ collectionView: UICollectionView,
+        cellForItemAt indexPath: IndexPath
+    ) -> UICollectionViewCell {
+        let cell = collectionView.dequeueReusableCell(
+            withReuseIdentifier: "TabGridCell",
+            for: indexPath
+        ) as! TabGridCell
+
+        let tab = tabs[indexPath.item]
+        cell.configure(tab: tab, isActive: indexPath.item == activeIndex)
+
+        cell.onClose = { [weak self] in
+            self?.closeTab(at: indexPath.item)
         }
+
+        return cell
     }
 
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-        progressObservation?.invalidate()
-    }
-
-    private func presentActionSheet(_ alert: UIAlertController) {
-        present(alert, animated: true) { [weak alert, weak self] in
-            guard let alert = alert, let superview = alert.view.superview else { return }
-            let tap = UITapGestureRecognizer(target: self, action: #selector(self?.dismissActionSheetOnOutsideTap))
-            tap.cancelsTouchesInView = false
-            superview.addGestureRecognizer(tap)
-        }
-    }
-
-    @objc private func dismissActionSheetOnOutsideTap() {
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        onSelectTab?(indexPath.item)
         dismiss(animated: true)
     }
 
-    private func configureInstallerObserver() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleInstallUserScriptNotification(_:)),
-            name: NSNotification.Name("InstallUserScriptNotification"),
-            object: nil
-        )
-    }
-
-    @objc private func handleInstallUserScriptNotification(_ notification: Notification) {
-        guard let scriptURL = notification.object as? URL else { return }
-
-        let task = URLSession.shared.dataTask(with: scriptURL) { [weak self] data, response, error in
-            guard let data = data, let code = String(data: data, encoding: .utf8), !code.isEmpty else { return }
-            let (parsedName, parsedMatch) = UserScriptStore.shared.parseMetadata(from: code)
-
-            DispatchQueue.main.async {
-                let alert = UIAlertController(
-                    title: "安装油猴脚本",
-                    message: "脚本名称: \(parsedName)\n匹配域名: \(parsedMatch)\n\n是否确定安装此油猴脚本？",
-                    preferredStyle: .alert
-                )
-
-                alert.addAction(UIAlertAction(title: "安装", style: .default) { _ in
-                    var scripts = UserScriptStore.shared.loadScripts()
-                    let newScript = UserScript(
-                        id: UUID().uuidString,
-                        name: parsedName,
-                        matchPattern: parsedMatch,
-                        code: code,
-                        isEnabled: true
-                    )
-                    scripts.append(newScript)
-                    UserScriptStore.shared.saveScripts(scripts)
-                    self?.activeTab.reloadUserScripts()
-                })
-
-                alert.addAction(UIAlertAction(title: "取消", style: .cancel))
-                self?.present(alert, animated: true)
-            }
-        }
-        task.resume()
-    }
-
-    private func configureInterface() {
-        view.backgroundColor = softWhiteBg
-
-        webContainer.translatesAutoresizingMaskIntoConstraints = false
-        webContainer.backgroundColor = softWhiteBg
-
-        homeView.translatesAutoresizingMaskIntoConstraints = false
-        homeView.backgroundColor = softWhiteBg
-
-        bottomPanel.translatesAutoresizingMaskIntoConstraints = false
-        bottomPanel.backgroundColor = UIColor(red: 240.0 / 255.0, green: 240.0 / 255.0, blue: 242.0 / 255.0, alpha: 1.0)
-
-        addressContainer.translatesAutoresizingMaskIntoConstraints = false
-        addressContainer.backgroundColor = softCardWhiteBg
-        addressContainer.layer.cornerRadius = 18
-        addressContainer.layer.borderWidth = 0.5
-        addressContainer.layer.borderColor = UIColor.separator.withAlphaComponent(0.2).cgColor
-        addressContainer.layer.shadowColor = UIColor.black.cgColor
-        addressContainer.layer.shadowOpacity = 0.05
-        addressContainer.layer.shadowRadius = 6
-        addressContainer.layer.shadowOffset = CGSize(width: 0, height: 2)
-        addressContainer.clipsToBounds = true
-
-        let longPressAddress = UILongPressGestureRecognizer(target: self, action: #selector(handleAddressLongPress(_:)))
-        longPressAddress.minimumPressDuration = 0.6
-        addressContainer.addGestureRecognizer(longPressAddress)
-
-        siteSettingsButton.translatesAutoresizingMaskIntoConstraints = false
-        siteSettingsButton.tintColor = .secondaryLabel
-        siteSettingsButton.setImage(
-            UIImage(
-                systemName: "slider.horizontal.3",
-                withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-            ),
-            for: .normal
-        )
-        siteSettingsButton.addTarget(self, action: #selector(showSiteDomainSettings), for: .touchUpInside)
-
-        addressField.translatesAutoresizingMaskIntoConstraints = false
-        addressField.delegate = self
-        addressField.placeholder = "搜索或输入网址"
-        addressField.font = .systemFont(ofSize: 14, weight: .regular)
-        addressField.textColor = .label
-        addressField.textAlignment = .center
-        addressField.keyboardType = .webSearch
-        addressField.returnKeyType = .go
-        addressField.autocapitalizationType = .none
-        addressField.autocorrectionType = .no
-        addressField.clearButtonMode = .never
-        addressField.textContentType = .URL
-        addressField.addTarget(self, action: #selector(addressFieldDidChange), for: .editingChanged)
-
-        refreshButton.translatesAutoresizingMaskIntoConstraints = false
-        refreshButton.tintColor = .secondaryLabel
-        refreshButton.setImage(
-            UIImage(
-                systemName: "arrow.clockwise",
-                withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-            ),
-            for: .normal
-        )
-        refreshButton.addTarget(self, action: #selector(handleRefreshTap), for: .touchUpInside)
-
-        clearButton.translatesAutoresizingMaskIntoConstraints = false
-        clearButton.tintColor = .secondaryLabel
-        clearButton.setImage(
-            UIImage(
-                systemName: "xmark",
-                withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
-            ),
-            for: .normal
-        )
-        clearButton.alpha = 0
-        clearButton.isHidden = true
-        clearButton.addTarget(self, action: #selector(clearAddressInput), for: .touchUpInside)
-
-        progressView.translatesAutoresizingMaskIntoConstraints = false
-        progressView.progressTintColor = .systemBlue
-        progressView.trackTintColor = .clear
-        progressView.progress = 0
-        progressView.alpha = 0
-
-        navigationStack.translatesAutoresizingMaskIntoConstraints = false
-        navigationStack.axis = .horizontal
-        navigationStack.alignment = .fill
-        navigationStack.distribution = .fillEqually
-        navigationStack.spacing = 0
-
-        configureToolbarButton(backButton, imageName: "chevron.left", action: #selector(goBack))
-        configureToolbarButton(forwardButton, imageName: "chevron.right", action: #selector(goForward))
-        configureToolbarButton(pluginButton, imageName: "square.3.layers.3d", action: #selector(showPluginPanel))
-        configureToolbarButton(tabsButton, imageName: "square.on.square", action: #selector(showTabsManager))
-        configureToolbarButton(moreButton, imageName: "line.3.horizontal", action: #selector(showMoreMenu))
-
-        navigationStack.addArrangedSubview(backButton)
-        navigationStack.addArrangedSubview(forwardButton)
-        navigationStack.addArrangedSubview(pluginButton)
-        navigationStack.addArrangedSubview(tabsButton)
-        navigationStack.addArrangedSubview(moreButton)
-
-        addressContainer.addSubview(siteSettingsButton)
-        addressContainer.addSubview(addressField)
-        addressContainer.addSubview(refreshButton)
-        addressContainer.addSubview(clearButton)
-        addressContainer.addSubview(progressView)
-
-        bottomPanel.addSubview(addressContainer)
-        bottomPanel.addSubview(navigationStack)
-
-        view.addSubview(webContainer)
-        view.addSubview(homeView)
-        view.addSubview(bottomPanel)
-
-        bottomPanelBottomConstraint = bottomPanel.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-
-        webTopSafeConstraint = webContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor)
-        webTopFullscreenConstraint = webContainer.topAnchor.constraint(equalTo: view.topAnchor)
-        webBottomPanelConstraint = webContainer.bottomAnchor.constraint(equalTo: bottomPanel.topAnchor)
-        webBottomFullscreenConstraint = webContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-
-        webTopSafeConstraint?.isActive = true
-        webBottomPanelConstraint?.isActive = true
-
-        NSLayoutConstraint.activate([
-            webContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            webContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-
-            homeView.topAnchor.constraint(equalTo: webContainer.topAnchor),
-            homeView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            homeView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            homeView.bottomAnchor.constraint(equalTo: webContainer.bottomAnchor),
-
-            bottomPanel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            bottomPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bottomPanelBottomConstraint!,
-
-            addressContainer.topAnchor.constraint(equalTo: bottomPanel.topAnchor, constant: 6),
-            addressContainer.leadingAnchor.constraint(equalTo: bottomPanel.leadingAnchor, constant: 14),
-            addressContainer.trailingAnchor.constraint(equalTo: bottomPanel.trailingAnchor, constant: -14),
-            addressContainer.heightAnchor.constraint(equalToConstant: 36),
-
-            siteSettingsButton.leadingAnchor.constraint(equalTo: addressContainer.leadingAnchor, constant: 8),
-            siteSettingsButton.centerYAnchor.constraint(equalTo: addressContainer.centerYAnchor),
-            siteSettingsButton.widthAnchor.constraint(equalToConstant: 24),
-            siteSettingsButton.heightAnchor.constraint(equalToConstant: 24),
-
-            progressView.leadingAnchor.constraint(equalTo: addressContainer.leadingAnchor),
-            progressView.trailingAnchor.constraint(equalTo: addressContainer.trailingAnchor),
-            progressView.bottomAnchor.constraint(equalTo: addressContainer.bottomAnchor),
-            progressView.heightAnchor.constraint(equalToConstant: 2),
-
-            refreshButton.trailingAnchor.constraint(equalTo: addressContainer.trailingAnchor, constant: -8),
-            refreshButton.centerYAnchor.constraint(equalTo: addressContainer.centerYAnchor),
-            refreshButton.widthAnchor.constraint(equalToConstant: 24),
-            refreshButton.heightAnchor.constraint(equalToConstant: 24),
-
-            clearButton.trailingAnchor.constraint(equalTo: addressContainer.trailingAnchor, constant: -8),
-            clearButton.centerYAnchor.constraint(equalTo: addressContainer.centerYAnchor),
-            clearButton.widthAnchor.constraint(equalToConstant: 24),
-            clearButton.heightAnchor.constraint(equalToConstant: 24),
-
-            addressField.leadingAnchor.constraint(equalTo: siteSettingsButton.trailingAnchor, constant: 6),
-            addressField.trailingAnchor.constraint(equalTo: refreshButton.leadingAnchor, constant: -6),
-            addressField.topAnchor.constraint(equalTo: addressContainer.topAnchor),
-            addressField.bottomAnchor.constraint(equalTo: addressContainer.bottomAnchor),
-
-            navigationStack.topAnchor.constraint(equalTo: addressContainer.bottomAnchor, constant: 2),
-            navigationStack.leadingAnchor.constraint(equalTo: bottomPanel.leadingAnchor, constant: 10),
-            navigationStack.trailingAnchor.constraint(equalTo: bottomPanel.trailingAnchor, constant: -10),
-            navigationStack.bottomAnchor.constraint(equalTo: bottomPanel.safeAreaLayoutGuide.bottomAnchor, constant: -1),
-            navigationStack.heightAnchor.constraint(equalToConstant: 38)
-        ])
-    }
-
-    @objc private func handleAddressLongPress(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began else { return }
-        let urlText = activeTab.url?.absoluteString ?? addressField.text ?? ""
-        guard !urlText.isEmpty else { return }
-
-        UIPasteboard.general.string = urlText
-        let feedback = UIImpactFeedbackGenerator(style: .medium)
-        feedback.impactOccurred()
-        showToastNotice("已复制当前网址")
-    }
-
-    private func showToastNotice(_ text: String) {
-        let toast = UILabel()
-        toast.text = "  \(text)  "
-        toast.font = .systemFont(ofSize: 13, weight: .medium)
-        toast.textColor = .white
-        toast.backgroundColor = UIColor.black.withAlphaComponent(0.75)
-        toast.layer.cornerRadius = 12
-        toast.clipsToBounds = true
-        toast.translatesAutoresizingMaskIntoConstraints = false
-        toast.alpha = 0
-
-        view.addSubview(toast)
-        NSLayoutConstraint.activate([
-            toast.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            toast.bottomAnchor.constraint(equalTo: bottomPanel.topAnchor, constant: -12),
-            toast.heightAnchor.constraint(equalToConstant: 32)
-        ])
-
-        UIView.animate(withDuration: 0.18) { toast.alpha = 1 }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            UIView.animate(withDuration: 0.2, animations: { toast.alpha = 0 }) { _ in
-                toast.removeFromSuperview()
-            }
-        }
-    }
-
-    private func configureToolbarButton(_ button: TouchButton, imageName: String, action: Selector?) {
-        var configuration = UIButton.Configuration.plain()
-        configuration.image = UIImage(
-            systemName: imageName,
-            withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        )
-        configuration.baseForegroundColor = .label
-        configuration.contentInsets = .zero
-
-        button.configuration = configuration
-        if let action = action {
-            button.addTarget(self, action: action, for: .touchUpInside)
-        }
-    }
-
-    private func configureKeyboardObservers() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(keyboardWillChangeFrame(_:)),
-            name: UIResponder.keyboardWillChangeFrameNotification,
-            object: nil
-        )
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(keyboardWillHide(_:)),
-            name: UIResponder.keyboardWillHideNotification,
-            object: nil
-        )
-    }
-
-    private func configureKeyboardDismissal() {
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
-        tapGesture.cancelsTouchesInView = false
-        tapGesture.delegate = self
-        view.addGestureRecognizer(tapGesture)
-    }
-
-    private func configureFullscreenExitGesture() {
-        let gesture = UILongPressGestureRecognizer(target: self, action: #selector(handleFullscreenExitGesture(_:)))
-        gesture.minimumPressDuration = 1.5
-        gesture.numberOfTouchesRequired = 2
-        gesture.cancelsTouchesInView = false
-        view.addGestureRecognizer(gesture)
-    }
-
-    private func createNewTab(loadURL url: URL?) {
-        let tab = TabItem()
-        tab.delegate = self
-        tabs.append(tab)
-        switchTab(to: tabs.count - 1)
-
-        if let url = url {
-            load(url: url)
-        }
-    }
-
-    private func switchTab(to index: Int) {
-        guard tabs.indices.contains(index) else {
-            return
-        }
-
-        if tabs.indices.contains(activeTabIndex) {
-            activeTab.webView.removeFromSuperview()
-        }
-
-        activeTabIndex = index
-
-        let tab = activeTab
-        tab.webView.translatesAutoresizingMaskIntoConstraints = false
-        webContainer.addSubview(tab.webView)
-
-        NSLayoutConstraint.activate([
-            tab.webView.topAnchor.constraint(equalTo: webContainer.topAnchor),
-            tab.webView.leadingAnchor.constraint(equalTo: webContainer.leadingAnchor),
-            tab.webView.trailingAnchor.constraint(equalTo: webContainer.trailingAnchor),
-            tab.webView.bottomAnchor.constraint(equalTo: webContainer.bottomAnchor)
-        ])
-
-        bindProgressObservation(to: tab.webView)
-
-        if let url = tab.url {
-            showBrowserUI()
-            addressField.text = url.host ?? url.absoluteString
-        } else {
-            showHomeUI()
-        }
-
-        updateUIState()
+    func collectionView(
+        _ collectionView: UICollectionView,
+        layout collectionViewLayout: UICollectionViewLayout,
+        sizeForItemAt indexPath: IndexPath
+    ) -> CGSize {
+        let width = (view.bounds.width - 44) / 2
+        return CGSize(width: width, height: width * 1.35)
     }
 
     private func closeTab(at index: Int) {
@@ -480,659 +846,112 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             return
         }
 
-        let tab = tabs[index]
-        tab.webView.stopLoading()
-        tab.webView.removeFromSuperview()
         tabs.remove(at: index)
 
+        if activeIndex == index {
+            activeIndex = max(0, index - 1)
+        } else if activeIndex > index {
+            activeIndex -= 1
+        }
+
+        collectionView.reloadData()
+        onCloseTab?(index)
+
         if tabs.isEmpty {
-            activeTabIndex = 0
-            createNewTab(loadURL: nil)
-            return
-        }
-
-        let nextIndex = min(index, tabs.count - 1)
-        activeTabIndex = min(activeTabIndex, tabs.count - 1)
-        switchTab(to: nextIndex)
-    }
-
-    private func bindProgressObservation(to webView: WKWebView) {
-        progressObservation?.invalidate()
-
-        progressObservation = webView.observe(\.estimatedProgress, options: [.new]) { [weak self] observedWebView, _ in
-            DispatchQueue.main.async {
-                guard let self, observedWebView.isLoading else {
-                    return
-                }
-
-                self.progressView.alpha = 1
-                self.progressView.setProgress(Float(observedWebView.estimatedProgress), animated: true)
-            }
+            dismiss(animated: true)
         }
     }
 
-    private func load(url: URL) {
-        showBrowserUI()
-        addressField.text = url.host ?? url.absoluteString
-        activeTab.webView.load(URLRequest(url: url))
-    }
-
-    private func showHomeUI() {
-        homeView.alpha = 1
-        webContainer.alpha = 0
-        addressField.text = ""
-        addressField.resignFirstResponder()
-        progressView.alpha = 0
-        updateUIState()
-    }
-
-    private func showBrowserUI() {
-        homeView.alpha = 0
-        webContainer.alpha = 1
-        updateUIState()
-    }
-
-    private func updateUIState() {
-        guard !tabs.isEmpty else {
-            return
+    @objc private func handleNewTab() {
+        dismiss(animated: true) { [weak self] in
+            self?.onNewTab?()
         }
+    }
 
-        let isHome = homeView.alpha > 0.5
+    @objc private func handleDone() {
+        dismiss(animated: true)
+    }
+}
 
-        backButton.isEnabled = !isHome && activeTab.webView.canGoBack
-        forwardButton.isEnabled = !isHome && activeTab.webView.canGoForward
-        moreButton.isEnabled = true
-        refreshButton.isEnabled = !isHome
+final class TabGridCell: UICollectionViewCell {
+    private let headerView = UIView()
+    private let thumbnailView = UIImageView()
+    private let titleLabel = UILabel()
+    private let closeButton = TouchButton(type: .system)
 
-        let refreshImage = activeTab.isLoading ? "xmark" : "arrow.clockwise"
+    var onClose: (() -> Void)?
 
-        refreshButton.setImage(
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+
+        contentView.backgroundColor = .secondarySystemGroupedBackground
+        contentView.layer.cornerRadius = 14
+        contentView.layer.masksToBounds = true
+
+        headerView.translatesAutoresizingMaskIntoConstraints = false
+        headerView.backgroundColor = .secondarySystemGroupedBackground
+
+        thumbnailView.translatesAutoresizingMaskIntoConstraints = false
+        thumbnailView.contentMode = .scaleAspectFill
+        thumbnailView.clipsToBounds = true
+        thumbnailView.backgroundColor = .systemBackground
+
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        titleLabel.textColor = .label
+        titleLabel.lineBreakMode = .byTruncatingTail
+
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.tintColor = .secondaryLabel
+        closeButton.setImage(
             UIImage(
-                systemName: refreshImage,
-                withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+                systemName: "xmark.circle.fill",
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
             ),
             for: .normal
         )
+        closeButton.addTarget(self, action: #selector(handleClose), for: .touchUpInside)
+
+        headerView.addSubview(titleLabel)
+        headerView.addSubview(closeButton)
+
+        contentView.addSubview(headerView)
+        contentView.addSubview(thumbnailView)
+
+        NSLayoutConstraint.activate([
+            headerView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            headerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            headerView.heightAnchor.constraint(equalToConstant: 34),
+
+            titleLabel.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 10),
+            titleLabel.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -4),
+            titleLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+
+            closeButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -7),
+            closeButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+            closeButton.widthAnchor.constraint(equalToConstant: 24),
+            closeButton.heightAnchor.constraint(equalToConstant: 24),
+
+            thumbnailView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            thumbnailView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            thumbnailView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            thumbnailView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+        ])
     }
 
-    private func destinationURL(from input: String) -> URL? {
-        let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !value.isEmpty else {
-            return nil
-        }
-
-        SearchHistoryStore.shared.addHistory(value)
-
-        var urlString = value
-        if !urlString.hasPrefix("http://") && !urlString.hasPrefix("https://") {
-            if urlString.contains(".") && !urlString.contains(" ") {
-                urlString = "https://" + urlString
-            } else {
-                let encoded = urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? urlString
-                return URL(string: "https://www.google.com/search?q=\(encoded)")
-            }
-        }
-
-        if let encodedURLString = urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-           let url = URL(string: encodedURLString) {
-            return url
-        }
-
-        return URL(string: urlString)
+    required init?(coder: NSCoder) {
+        nil
     }
 
-    private func setFullscreen(_ enabled: Bool) {
-        guard isFullscreen != enabled else {
-            return
-        }
-
-        dismissKeyboard()
-
-        isFullscreen = enabled
-        bottomPanel.isHidden = enabled
-
-        webTopSafeConstraint?.isActive = !enabled
-        webTopFullscreenConstraint?.isActive = enabled
-        webBottomPanelConstraint?.isActive = !enabled
-        webBottomFullscreenConstraint?.isActive = enabled
-
-        UIView.animate(withDuration: 0.2) {
-            self.view.layoutIfNeeded()
-        }
-
-        setNeedsStatusBarAppearanceUpdate()
-        setNeedsUpdateOfHomeIndicatorAutoHidden()
-        updateUIState()
+    func configure(tab: TabItem, isActive: Bool) {
+        titleLabel.text = tab.title
+        thumbnailView.image = tab.snapshot
+        contentView.layer.borderWidth = isActive ? 2 : 0
+        contentView.layer.borderColor = isActive ? UIColor.systemBlue.cgColor : UIColor.clear.cgColor
     }
 
-    private func showLoadError(_ error: Error) {
-        let nsError = error as NSError
-
-        let ignoredErrorCodes: [Int] = [
-            NSURLErrorCancelled,
-            NSURLErrorCannotConnectToHost,
-            NSURLErrorTimedOut,
-            NSURLErrorNetworkConnectionLost,
-            NSURLErrorDNSLookupFailed,
-            NSURLErrorNotConnectedToInternet,
-            102
-        ]
-
-        guard nsError.domain != "WebKitErrorDomain" && !ignoredErrorCodes.contains(nsError.code) else {
-            return
-        }
-
-        let alert = UIAlertController(
-            title: "无法访问页面",
-            message: nsError.localizedDescription,
-            preferredStyle: .alert
-        )
-
-        alert.addAction(UIAlertAction(title: "重试", style: .default) { [weak self] _ in
-            self?.activeTab.webView.reload()
-        })
-
-        present(alert, animated: true)
-    }
-
-    private func updateAddressEditingAppearance() {
-        let editing = addressField.isFirstResponder
-
-        refreshButton.isHidden = editing
-        clearButton.isHidden = !editing
-
-        UIView.animate(withDuration: 0.12) {
-            self.refreshButton.alpha = editing ? 0 : 1
-            self.clearButton.alpha = editing ? 1 : 0
-        }
-    }
-
-    func tabRequestNewTab(url: URL) {
-        createNewTab(loadURL: url)
-    }
-
-    func tabDidUpdate(_ tab: TabItem) {
-        guard !tabs.isEmpty, tab.id == activeTab.id else {
-            return
-        }
-
-        if let url = tab.url, !addressField.isFirstResponder {
-            addressField.text = url.host ?? url.absoluteString
-        }
-
-        updateUIState()
-
-        if !tab.isLoading {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-                guard let self, !self.activeTab.isLoading else {
-                    return
-                }
-
-                UIView.animate(withDuration: 0.2) {
-                    self.progressView.alpha = 0
-                }
-            }
-        }
-    }
-
-    func tabDidFail(_ tab: TabItem, error: Error) {
-        guard !tabs.isEmpty, tab.id == activeTab.id else {
-            return
-        }
-
-        UIView.animate(withDuration: 0.2) {
-            self.progressView.alpha = 0
-            self.progressView.progress = 0
-        }
-
-        updateUIState()
-        showLoadError(error)
-    }
-
-    func textFieldDidBeginEditing(_ textField: UITextField) {
-        if let url = activeTab.url {
-            textField.text = url.absoluteString
-        }
-
-        textField.textAlignment = .left
-        updateAddressEditingAppearance()
-
-        DispatchQueue.main.async {
-            textField.selectAll(nil)
-        }
-    }
-
-    func textFieldDidEndEditing(_ textField: UITextField) {
-        if let url = activeTab.url {
-            textField.text = url.host ?? url.absoluteString
-        } else if textField.text?.isEmpty == true {
-            textField.text = ""
-        }
-
-        textField.textAlignment = .center
-        updateAddressEditingAppearance()
-    }
-
-    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        guard let text = textField.text, let url = destinationURL(from: text) else {
-            return true
-        }
-
-        textField.resignFirstResponder()
-        load(url: url)
-
-        return true
-    }
-
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        if touch.view?.isDescendant(of: addressContainer) == true {
-            return false
-        }
-
-        return true
-    }
-
-    @objc private func addressFieldDidChange() {
-        updateAddressEditingAppearance()
-    }
-
-    @objc private func clearAddressInput() {
-        addressField.text = ""
-        addressField.becomeFirstResponder()
-        updateAddressEditingAppearance()
-    }
-
-    @objc private func dismissKeyboard() {
-        view.endEditing(true)
-    }
-
-    @objc private func keyboardWillChangeFrame(_ notification: Notification) {
-        guard addressField.isFirstResponder else {
-            if bottomPanelBottomConstraint?.constant != 0 {
-                bottomPanelBottomConstraint?.constant = 0
-                view.layoutIfNeeded()
-            }
-            return
-        }
-
-        guard !isFullscreen,
-              let userInfo = notification.userInfo,
-              let keyboardFrame = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
-              let duration = userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval else {
-            return
-        }
-
-        let frameInView = view.convert(keyboardFrame, from: nil)
-        let overlap = max(0, view.bounds.maxY - frameInView.minY)
-        let offset = max(0, overlap - view.safeAreaInsets.bottom)
-
-        let curve = userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
-        let options = UIView.AnimationOptions(rawValue: curve << 16)
-
-        bottomPanelBottomConstraint?.constant = -offset
-
-        UIView.animate(withDuration: duration, delay: 0, options: options) {
-            self.view.layoutIfNeeded()
-        }
-    }
-
-    @objc private func keyboardWillHide(_ notification: Notification) {
-        guard addressField.isFirstResponder else {
-            if bottomPanelBottomConstraint?.constant != 0 {
-                bottomPanelBottomConstraint?.constant = 0
-                view.layoutIfNeeded()
-            }
-            return
-        }
-
-        guard let userInfo = notification.userInfo,
-              let duration = userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval else {
-            bottomPanelBottomConstraint?.constant = 0
-            view.layoutIfNeeded()
-            return
-        }
-
-        let curve = userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
-        let options = UIView.AnimationOptions(rawValue: curve << 16)
-
-        bottomPanelBottomConstraint?.constant = 0
-
-        UIView.animate(withDuration: duration, delay: 0, options: options) {
-            self.view.layoutIfNeeded()
-        }
-    }
-
-    @objc private func handleFullscreenExitGesture(_ gesture: UILongPressGestureRecognizer) {
-        guard isFullscreen, gesture.state == .began else {
-            return
-        }
-
-        setFullscreen(false)
-    }
-
-    @objc private func handleRefreshTap() {
-        guard homeView.alpha < 0.5 else {
-            return
-        }
-
-        if activeTab.isLoading {
-            activeTab.webView.stopLoading()
-        } else {
-            activeTab.webView.reload()
-        }
-
-        updateUIState()
-    }
-
-    @objc private func goBack() {
-        activeTab.webView.goBack()
-    }
-
-    @objc private func goForward() {
-        activeTab.webView.goForward()
-    }
-
-    @objc private func showSiteDomainSettings() {
-        dismissKeyboard()
-        guard let host = activeTab.url?.host else { return }
-
-        let settingsVC = DomainSettingsViewController(domain: host) { [weak self] in
-            self?.activeTab.reloadUserScripts()
-        }
-        settingsVC.onExtractText = { [weak self] in
-            self?.extractPageText()
-        }
-
-        let nav = UINavigationController(rootViewController: settingsVC)
-        nav.modalPresentationStyle = .pageSheet
-        present(nav, animated: true)
-    }
-
-    private func extractPageText() {
-        activeTab.webView.evaluateJavaScript("document.body.innerText") { [weak self] result, error in
-            guard let text = result as? String, !text.isEmpty else { return }
-            let vc = UIViewController()
-            vc.title = "网页正文内容"
-            vc.view.backgroundColor = .systemBackground
-
-            let textView = UITextView()
-            textView.translatesAutoresizingMaskIntoConstraints = false
-            textView.font = .systemFont(ofSize: 15)
-            textView.isEditable = false
-            textView.text = text
-
-            vc.view.addSubview(textView)
-            NSLayoutConstraint.activate([
-                textView.topAnchor.constraint(equalTo: vc.view.topAnchor),
-                textView.leadingAnchor.constraint(equalTo: vc.view.leadingAnchor),
-                textView.trailingAnchor.constraint(equalTo: vc.view.trailingAnchor),
-                textView.bottomAnchor.constraint(equalTo: vc.view.bottomAnchor)
-            ])
-
-            vc.navigationItem.rightBarButtonItem = UIBarButtonItem(title: "完成", style: .done, target: self, action: #selector(self?.dismissModalVC))
-            let nav = UINavigationController(rootViewController: vc)
-            self?.present(nav, animated: true)
-        }
-    }
-
-    @objc private func dismissModalVC() {
-        dismiss(animated: true)
-    }
-
-    @objc private func showPluginPanel() {
-        dismissKeyboard()
-        let currentUrlStr = activeTab.url?.absoluteString ?? ""
-        let currentHost = activeTab.url?.host ?? ""
-        let matchingScripts = UserScriptStore.shared.loadScripts().filter {
-            UserScriptStore.shared.isScriptMatching(script: $0, urlString: currentUrlStr)
-        }
-
-        var items: [MenuSheetItem] = []
-
-        if matchingScripts.isEmpty {
-            items.append(MenuSheetItem(title: "当前页面未匹配到已启用的脚本", style: .default, handler: nil))
-        } else {
-            for script in matchingScripts {
-                let statusIcon = script.isEnabled ? "🟢" : "⚪"
-                items.append(MenuSheetItem(title: "\(statusIcon)  \(script.name)", style: .default, handler: { [weak self] in
-                    self?.showScriptSubMenu(for: script)
-                }))
-            }
-        }
-
-        items.append(MenuSheetItem(title: "搜索适合当前网站的脚本", style: .default, handler: { [weak self] in
-            let searchUrlStr = "https://greasyfork.org/zh-CN/scripts?q=\(currentHost)"
-            if let searchUrl = URL(string: searchUrlStr) {
-                self?.load(url: searchUrl)
-            }
-        }))
-
-        items.append(MenuSheetItem(title: "用户脚本设置", style: .default, handler: { [weak self] in
-            self?.showPluginManager()
-        }))
-
-        let sheet = MenuSheetViewController(title: "正在运行的脚本", items: items)
-        let nav = UINavigationController(rootViewController: sheet)
-        if #available(iOS 15.0, *) {
-            if let presentation = nav.sheetPresentationController {
-                presentation.detents = [.medium(), .large()]
-            }
-        }
-        present(nav, animated: true)
-    }
-
-    private func showScriptSubMenu(for script: UserScript) {
-        var items: [MenuSheetItem] = []
-
-        let scriptCmds = activeTab.registeredCommands.filter { $0.scriptId == script.id }
-        for cmd in scriptCmds {
-            items.append(MenuSheetItem(title: "⚙️  \(cmd.caption)", style: .default, handler: { [weak self] in
-                self?.activeTab.webView.evaluateJavaScript("window.__gm_invokeMenuCommand(\(cmd.cmdId))", completionHandler: nil)
-            }))
-        }
-
-        items.append(MenuSheetItem(title: script.isEnabled ? "⏸ 禁用该脚本" : "▶️ 启用该脚本", style: .default, handler: { [weak self] in
-            var scripts = UserScriptStore.shared.loadScripts()
-            if let idx = scripts.firstIndex(where: { $0.id == script.id }) {
-                scripts[idx].isEnabled = !script.isEnabled
-                UserScriptStore.shared.saveScripts(scripts)
-                self?.activeTab.reloadUserScripts()
-            }
-        }))
-
-        items.append(MenuSheetItem(title: "🧹 清除该脚本缓存数据", style: .default, handler: {
-            ScriptDataStore.shared.clearDataForScript(scriptId: script.id)
-        }))
-
-        items.append(MenuSheetItem(title: "📝 编辑脚本代码", style: .default, handler: { [weak self] in
-            let editor = UserScriptEditorViewController(script: script)
-            editor.onSave = { updatedScript in
-                var scripts = UserScriptStore.shared.loadScripts()
-                if let idx = scripts.firstIndex(where: { $0.id == updatedScript.id }) {
-                    scripts[idx] = updatedScript
-                    UserScriptStore.shared.saveScripts(scripts)
-                    self?.activeTab.reloadUserScripts()
-                }
-            }
-            let nav = UINavigationController(rootViewController: editor)
-            self?.present(nav, animated: true)
-        }))
-
-        let sheet = MenuSheetViewController(title: script.name, items: items)
-        let nav = UINavigationController(rootViewController: sheet)
-        if #available(iOS 15.0, *) {
-            if let presentation = nav.sheetPresentationController {
-                presentation.detents = [.medium(), .large()]
-            }
-        }
-        present(nav, animated: true)
-    }
-
-    @objc private func showPluginManager() {
-        dismissKeyboard()
-        let manager = UserScriptManagerViewController()
-        manager.onScriptsUpdated = { [weak self] in
-            self?.activeTab.reloadUserScripts()
-        }
-        let nav = UINavigationController(rootViewController: manager)
-        nav.modalPresentationStyle = .pageSheet
-        present(nav, animated: true)
-    }
-
-    @objc private func showTabsManager() {
-        dismissKeyboard()
-
-        activeTab.updateSnapshot { [weak self] in
-            guard let self else {
-                return
-            }
-
-            let manager = TabGridViewController(
-                tabs: self.tabs,
-                activeIndex: self.activeTabIndex
-            )
-
-            manager.onSelectTab = { [weak self] index in
-                self?.switchTab(to: index)
-            }
-
-            manager.onCloseTab = { [weak self] index in
-                self?.closeTab(at: index)
-            }
-
-            manager.onNewTab = { [weak self] in
-                self?.createNewTab(loadURL: nil)
-            }
-
-            let navigationController = UINavigationController(rootViewController: manager)
-            navigationController.modalPresentationStyle = .pageSheet
-            self.present(navigationController, animated: true)
-        }
-    }
-
-    @objc private func showMoreMenu() {
-        dismissKeyboard()
-
-        var items: [MenuSheetItem] = []
-
-        items.append(MenuSheetItem(
-            title: isFullscreen ? "退出全屏浏览" : "全屏浏览",
-            style: .default,
-            handler: { [weak self] in
-                guard let self = self else { return }
-                self.setFullscreen(!self.isFullscreen)
-            }
-        ))
-
-        let isEyeOn = EyeProtectionManager.shared.isEnabled
-        items.append(MenuSheetItem(
-            title: isEyeOn ? "关闭护眼模式" : "开启护眼模式",
-            style: .default,
-            handler: { [weak self] in
-                EyeProtectionManager.shared.toggle(in: self?.view.window)
-            }
-        ))
-
-        let currentUAItem = UserAgentStore.shared.getSelectedItem()
-        items.append(MenuSheetItem(
-            title: "浏览器标识: \(currentUAItem.name)",
-            style: .default,
-            handler: { [weak self] in
-                self?.showUserAgentManager()
-            }
-        ))
-
-        let isDesktop = currentUAItem.id == "default_mac"
-        items.append(MenuSheetItem(
-            title: isDesktop ? "切换为移动版网页" : "切换为电脑版网页",
-            style: .default,
-            handler: { [weak self] in
-                let targetId = isDesktop ? "default_safari" : "default_mac"
-                UserAgentStore.shared.setSelectedId(targetId)
-                let newUA = UserAgentStore.shared.getSelectedUA()
-                self?.activeTab.webView.customUserAgent = newUA
-                self?.activeTab.webView.reload()
-            }
-        ))
-
-        items.append(MenuSheetItem(
-            title: "清除数据",
-            style: .default,
-            handler: { [weak self] in
-                self?.showCleanDataMenu()
-            }
-        ))
-
-        let sheet = MenuSheetViewController(title: nil, items: items)
-        let nav = UINavigationController(rootViewController: sheet)
-        if #available(iOS 15.0, *) {
-            if let presentation = nav.sheetPresentationController {
-                presentation.detents = [.medium()]
-            }
-        }
-        present(nav, animated: true)
-    }
-
-    private func showUserAgentManager() {
-        let manager = UserAgentManagerViewController()
-        manager.onUASelected = { [weak self] newUA in
-            self?.activeTab.webView.customUserAgent = newUA
-            self?.activeTab.webView.reload()
-        }
-        let nav = UINavigationController(rootViewController: manager)
-        present(nav, animated: true)
-    }
-
-    private func showCleanDataMenu() {
-        let cleanVC = CleanDataSelectionViewController()
-        cleanVC.onConfirmClean = { [weak self] options in
-            self?.performCleanData(options: options)
-        }
-        cleanVC.onOpenWebsiteDataManager = { [weak self] in
-            let manager = WebsiteDataManagerViewController()
-            let nav = UINavigationController(rootViewController: manager)
-            self?.present(nav, animated: true)
-        }
-        let nav = UINavigationController(rootViewController: cleanVC)
-        present(nav, animated: true)
-    }
-
-    private func performCleanData(options: Set<CleanOption>) {
-        if options.contains(.cache) {
-            let cacheTypes: Set<String> = [
-                WKWebsiteDataTypeFetchCache,
-                WKWebsiteDataTypeDiskCache,
-                WKWebsiteDataTypeMemoryCache,
-                WKWebsiteDataTypeOfflineWebApplicationCache
-            ]
-            WKWebsiteDataStore.default().removeData(ofTypes: cacheTypes, modifiedSince: .distantPast) {}
-        }
-
-        if options.contains(.cookies) {
-            let store = WKWebsiteDataStore.default().httpCookieStore
-            store.getAllCookies { cookies in
-                for cookie in cookies {
-                    if !CookieLockStore.shared.isLocked(domain: cookie.domain) {
-                        store.delete(cookie)
-                    }
-                }
-            }
-        }
-
-        if options.contains(.searchHistory) {
-            SearchHistoryStore.shared.clearHistory()
-        }
-
-        if options.contains(.scriptData) {
-            ScriptDataStore.shared.clearAllScriptData()
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let self = self else { return }
-            if self.homeView.alpha < 0.5 {
-                self.activeTab.webView.reload()
-            }
-        }
+    @objc private func handleClose() {
+        onClose?()
     }
 }
