@@ -11,7 +11,7 @@ struct UserScript: Codable {
 
 final class UserScriptStore {
     static let shared = UserScriptStore()
-    private let key = "user_tampermonkey_scripts_v2"
+    private let key = "user_tampermonkey_scripts_v3"
 
     private init() {}
 
@@ -54,6 +54,20 @@ final class UserScriptStore {
             }
         }
         return (name, match)
+    }
+
+    func isScriptMatching(script: UserScript, urlString: String) -> Bool {
+        guard script.isEnabled else { return false }
+        if script.matchPattern == "*" || script.matchPattern.isEmpty { return true }
+        guard let url = URL(string: urlString), let host = url.host?.lowercased() else { return true }
+        let pattern = script.matchPattern.lowercased()
+            .replacingOccurrences(of: "*://", with: "")
+            .replacingOccurrences(of: "http://", with: "")
+            .replacingOccurrences(of: "https://", with: "")
+            .components(separatedBy: "/").first ?? script.matchPattern
+        let domainPattern = pattern.replacingOccurrences(of: "*.", with: "").replacingOccurrences(of: "*", with: "")
+        if domainPattern.isEmpty { return true }
+        return host.contains(domainPattern) || domainPattern.contains(host)
     }
 }
 
@@ -110,13 +124,19 @@ protocol TabItemDelegate: AnyObject {
     func tabDidFail(_ tab: TabItem, error: Error)
 }
 
-final class TabItem: NSObject, WKNavigationDelegate {
+struct RegisteredMenuCommand {
+    let id: Int
+    let caption: String
+}
+
+final class TabItem: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     let id = UUID()
     let webView: WKWebView
     var title = "主页"
     var url: URL?
     var isLoading = false
     var snapshot: UIImage?
+    var registeredCommands: [RegisteredMenuCommand] = []
 
     weak var delegate: TabItemDelegate?
 
@@ -126,8 +146,13 @@ final class TabItem: NSObject, WKNavigationDelegate {
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
 
+        let userContentController = WKUserContentController()
+        configuration.userContentController = userContentController
+
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
+
+        userContentController.add(self, name: "GM")
 
         webView.navigationDelegate = self
         webView.allowsBackForwardNavigationGestures = true
@@ -137,14 +162,90 @@ final class TabItem: NSObject, WKNavigationDelegate {
         webView.isOpaque = true
     }
 
+    deinit {
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "GM")
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any], let action = body["action"] as? String else { return }
+
+        if action == "registerMenuCommand", let cmdId = body["id"] as? Int, let caption = body["caption"] as? String {
+            registeredCommands.removeAll { $0.id == cmdId }
+            registeredCommands.append(RegisteredMenuCommand(id: cmdId, caption: caption))
+        } else if action == "unregisterMenuCommand", let cmdId = body["id"] as? Int {
+            registeredCommands.removeAll { $0.id == cmdId }
+        } else if action == "xhr", let reqId = body["id"] as? String, let urlString = body["url"] as? String, let targetURL = URL(string: urlString) {
+            let method = (body["method"] as? String) ?? "GET"
+            var request = URLRequest(url: targetURL)
+            request.httpMethod = method
+
+            if let headers = body["headers"] as? [String: String] {
+                for (k, v) in headers {
+                    request.setValue(v, forHTTPHeaderField: k)
+                }
+            }
+
+            if let dataString = body["data"] as? String {
+                request.httpBody = dataString.data(using: .utf8)
+            }
+
+            let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+                DispatchQueue.main.async {
+                    if let error = error {
+                        let errEscaped = error.localizedDescription.replacingOccurrences(of: "'", with: "\\'")
+                        self?.webView.evaluateJavaScript("window.__gm_handleXhrError('\(reqId)', '\(errEscaped)')", completionHandler: nil)
+                        return
+                    }
+
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 200
+                    let responseText = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    let jsonTextData = try? JSONSerialization.data(withJSONObject: [responseText], options: [])
+                    let jsonText = jsonTextData.flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
+                    let unwrappedText = String(jsonText.dropFirst().dropLast())
+
+                    self?.webView.evaluateJavaScript("window.__gm_handleXhrResponse('\(reqId)', \(statusCode), \(unwrappedText))", completionHandler: nil)
+                }
+            }
+            task.resume()
+        }
+    }
+
     func injectAndRunUserScripts() {
-        let scripts = UserScriptStore.shared.loadScripts().filter { $0.isEnabled }
-        guard !scripts.isEmpty else { return }
+        let currentUrlStr = url?.absoluteString ?? ""
+        let matchingScripts = UserScriptStore.shared.loadScripts().filter {
+            UserScriptStore.shared.isScriptMatching(script: $0, urlString: currentUrlStr)
+        }
 
         let gmPolyfill = """
         if (!window.__gm_polyfilled__) {
             window.__gm_polyfilled__ = true;
             window.unsafeWindow = window;
+            window.__gm_menu_commands__ = window.__gm_menu_commands__ || {};
+            window.GM_registerMenuCommand = function(caption, commandFunc) {
+                var id = Math.floor(Math.random() * 1000000);
+                window.__gm_menu_commands__[id] = commandFunc;
+                try {
+                    window.webkit.messageHandlers.GM.postMessage({
+                        action: 'registerMenuCommand',
+                        id: id,
+                        caption: caption
+                    });
+                } catch(e) {}
+                return id;
+            };
+            window.GM_unregisterMenuCommand = function(id) {
+                delete window.__gm_menu_commands__[id];
+                try {
+                    window.webkit.messageHandlers.GM.postMessage({
+                        action: 'unregisterMenuCommand',
+                        id: id
+                    });
+                } catch(e) {}
+            };
+            window.__gm_invokeMenuCommand = function(id) {
+                var fn = window.__gm_menu_commands__[id];
+                if (typeof fn === 'function') { fn(); }
+            };
             window.GM_addStyle = function(css) {
                 var style = document.createElement('style');
                 style.type = 'text/css';
@@ -157,16 +258,57 @@ final class TabItem: NSObject, WKNavigationDelegate {
             };
             window.GM_getValue = function(name, defaultValue) {
                 var val = localStorage.getItem('GM_' + name);
-                return val ? JSON.parse(val) : defaultValue;
+                return val !== null ? JSON.parse(val) : defaultValue;
+            };
+            window.GM_deleteValue = function(name) {
+                localStorage.removeItem('GM_' + name);
             };
             window.GM_log = function(msg) {
-                console.log('[Tampermonkey Log]', msg);
+                console.log('[Tampermonkey]', msg);
+            };
+            window.__gm_xhr_callbacks__ = window.__gm_xhr_callbacks__ || {};
+            window.GM_xmlhttpRequest = function(opts) {
+                var id = 'xhr_' + Math.random().toString(36).substr(2, 9);
+                window.__gm_xhr_callbacks__[id] = opts;
+                try {
+                    window.webkit.messageHandlers.GM.postMessage({
+                        action: 'xhr',
+                        id: id,
+                        method: opts.method || 'GET',
+                        url: opts.url,
+                        headers: opts.headers || {},
+                        data: opts.data || null,
+                        timeout: opts.timeout || 0
+                    });
+                } catch(e) {
+                    if (opts.onerror) opts.onerror({ status: 0, responseText: e.toString() });
+                }
+            };
+            window.__gm_handleXhrResponse = function(id, status, text) {
+                var opts = window.__gm_xhr_callbacks__[id];
+                if (!opts) return;
+                delete window.__gm_xhr_callbacks__[id];
+                if (opts.onload) {
+                    opts.onload({
+                        status: status,
+                        responseText: text,
+                        readyState: 4
+                    });
+                }
+            };
+            window.__gm_handleXhrError = function(id, errorText) {
+                var opts = window.__gm_xhr_callbacks__[id];
+                if (!opts) return;
+                delete window.__gm_xhr_callbacks__[id];
+                if (opts.onerror) {
+                    opts.onerror({ status: 0, responseText: errorText });
+                }
             };
         }
         """
 
         var fullJS = gmPolyfill + "\n"
-        for script in scripts {
+        for script in matchingScripts {
             fullJS += "try { \n" + script.code + "\n } catch(e) { console.error('[UserScript Error]', e); }\n"
         }
 
@@ -174,6 +316,7 @@ final class TabItem: NSObject, WKNavigationDelegate {
     }
 
     func reloadUserScripts() {
+        registeredCommands.removeAll()
         injectAndRunUserScripts()
         webView.reload()
     }
@@ -195,6 +338,7 @@ final class TabItem: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         isLoading = true
+        registeredCommands.removeAll()
         delegate?.tabDidUpdate(self)
     }
 
@@ -411,7 +555,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
         configureToolbarButton(backButton, imageName: "chevron.left", action: #selector(goBack))
         configureToolbarButton(forwardButton, imageName: "chevron.right", action: #selector(goForward))
-        configureToolbarButton(pluginButton, imageName: "puzzlepiece", action: #selector(showPluginManager))
+        configureToolbarButton(pluginButton, imageName: "square.3.layers.3d", action: #selector(showPluginPanel))
         configureToolbarButton(tabsButton, imageName: "square.on.square", action: #selector(showTabsManager))
         configureToolbarButton(moreButton, imageName: "line.3.horizontal", action: #selector(showMoreMenu))
 
@@ -907,6 +1051,60 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
     @objc private func goForward() {
         activeTab.webView.goForward()
+    }
+
+    @objc private func showPluginPanel() {
+        dismissKeyboard()
+        let currentUrlStr = activeTab.url?.absoluteString ?? ""
+        let currentHost = activeTab.url?.host ?? ""
+        let matchingScripts = UserScriptStore.shared.loadScripts().filter {
+            UserScriptStore.shared.isScriptMatching(script: $0, urlString: currentUrlStr)
+        }
+
+        let alert = UIAlertController(title: "正在运行的脚本", message: nil, preferredStyle: .actionSheet)
+
+        if activeTab.registeredCommands.isEmpty && matchingScripts.isEmpty {
+            let emptyAction = UIAlertAction(title: "当前页面未匹配到已启用的脚本", style: .default, handler: nil)
+            emptyAction.isEnabled = false
+            alert.addAction(emptyAction)
+        } else {
+            for cmd in activeTab.registeredCommands {
+                alert.addAction(UIAlertAction(title: "⚙️  \(cmd.caption)", style: .default) { [weak self] _ in
+                    self?.activeTab.webView.evaluateJavaScript("window.__gm_invokeMenuCommand(\(cmd.id))", completionHandler: nil)
+                })
+            }
+
+            for script in matchingScripts {
+                let statusIcon = script.isEnabled ? "🟢" : "⚪"
+                alert.addAction(UIAlertAction(title: "\(statusIcon)  \(script.name)", style: .default) { [weak self] _ in
+                    let editor = UserScriptEditorViewController(script: script)
+                    editor.onSave = { updatedScript in
+                        var scripts = UserScriptStore.shared.loadScripts()
+                        if let idx = scripts.firstIndex(where: { $0.id == updatedScript.id }) {
+                            scripts[idx] = updatedScript
+                            UserScriptStore.shared.saveScripts(scripts)
+                            self?.activeTab.reloadUserScripts()
+                        }
+                    }
+                    let nav = UINavigationController(rootViewController: editor)
+                    self?.present(nav, animated: true)
+                })
+            }
+        }
+
+        alert.addAction(UIAlertAction(title: "搜索适合当前网站的脚本", style: .default) { [weak self] _ in
+            let searchUrlStr = "https://greasyfork.org/zh-CN/scripts?q=\(currentHost)"
+            if let searchUrl = URL(string: searchUrlStr) {
+                self?.load(url: searchUrl)
+            }
+        })
+
+        alert.addAction(UIAlertAction(title: "用户脚本设置", style: .default) { [weak self] _ in
+            self?.showPluginManager()
+        })
+
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        present(alert, animated: true)
     }
 
     @objc private func showPluginManager() {
