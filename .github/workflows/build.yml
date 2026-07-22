@@ -13,6 +13,52 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    - name: Generate App Icon
+      run: |
+        mkdir -p Assets.xcassets/AppIcon.appiconset
+        cat << 'EOF' > generate_icon.swift
+        import AppKit
+
+        let size = CGSize(width: 1024, height: 1024)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        NSColor(red: 0.1, green: 0.5, blue: 0.95, alpha: 1.0).setFill()
+        NSRect(origin: .zero, size: size).fill()
+        NSColor.white.setStroke()
+        let path = NSBezierPath()
+        path.appendArc(withCenter: CGPoint(x: 512, y: 512), radius: 260, startAngle: 0, endAngle: 360)
+        path.lineWidth = 50
+        path.stroke()
+        let innerPath = NSBezierPath()
+        innerPath.appendArc(withCenter: CGPoint(x: 512, y: 512), radius: 100, startAngle: 0, endAngle: 360)
+        NSColor.white.setFill()
+        innerPath.fill()
+        image.unlockFocus()
+
+        if let tiffData = image.tiffRepresentation, 
+           let bitmap = NSBitmapImageRep(data: tiffData), 
+           let pngData = bitmap.representation(using: .png, properties: [:]) {
+            try? pngData.write(to: URL(fileURLWithPath: "Assets.xcassets/AppIcon.appiconset/icon.png"))
+        }
+        EOF
+        swift generate_icon.swift
+        cat << 'EOF' > Assets.xcassets/AppIcon.appiconset/Contents.json
+        {
+          "images": [
+            {
+              "idiom": "universal",
+              "platform": "ios",
+              "size": "1024x1024",
+              "filename": "icon.png"
+            }
+          ],
+          "info": {
+            "version": 1,
+            "author": "xcode"
+          }
+        }
+        EOF
+
     - name: Install XcodeGen
       run: brew install xcodegen
 
