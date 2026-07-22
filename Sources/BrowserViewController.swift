@@ -113,19 +113,6 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         progressObservation?.invalidate()
     }
 
-    private func presentActionSheet(_ alert: UIAlertController) {
-        present(alert, animated: true) { [weak alert, weak self] in
-            guard let alert = alert, let superview = alert.view.superview else { return }
-            let tap = UITapGestureRecognizer(target: self, action: #selector(self?.dismissActionSheetOnOutsideTap))
-            tap.cancelsTouchesInView = false
-            superview.addGestureRecognizer(tap)
-        }
-    }
-
-    @objc private func dismissActionSheetOnOutsideTap() {
-        dismiss(animated: true)
-    }
-
     private func configureInstallerObserver() {
         NotificationCenter.default.addObserver(
             self,
@@ -868,59 +855,64 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             UserScriptStore.shared.isScriptMatching(script: $0, urlString: currentUrlStr)
         }
 
-        let alert = UIAlertController(title: "正在运行的脚本", message: nil, preferredStyle: .actionSheet)
+        var items: [MenuSheetItem] = []
 
         if matchingScripts.isEmpty {
-            let emptyAction = UIAlertAction(title: "当前页面未匹配到已启用的脚本", style: .default, handler: nil)
-            emptyAction.isEnabled = false
-            alert.addAction(emptyAction)
+            items.append(MenuSheetItem(title: "当前页面未匹配到已启用的脚本", style: .default, handler: nil))
         } else {
             for script in matchingScripts {
                 let statusIcon = script.isEnabled ? "🟢" : "⚪"
-                alert.addAction(UIAlertAction(title: "\(statusIcon)  \(script.name)", style: .default) { [weak self] _ in
+                items.append(MenuSheetItem(title: "\(statusIcon)  \(script.name)", style: .default, handler: { [weak self] in
                     self?.showScriptSubMenu(for: script)
-                })
+                }))
             }
         }
 
-        alert.addAction(UIAlertAction(title: "搜索适合当前网站的脚本", style: .default) { [weak self] _ in
+        items.append(MenuSheetItem(title: "搜索适合当前网站的脚本", style: .default, handler: { [weak self] in
             let searchUrlStr = "https://greasyfork.org/zh-CN/scripts?q=\(currentHost)"
             if let searchUrl = URL(string: searchUrlStr) {
                 self?.load(url: searchUrl)
             }
-        })
+        }))
 
-        alert.addAction(UIAlertAction(title: "用户脚本设置", style: .default) { [weak self] _ in
+        items.append(MenuSheetItem(title: "用户脚本设置", style: .default, handler: { [weak self] in
             self?.showPluginManager()
-        })
+        }))
 
-        presentActionSheet(alert)
+        let sheet = MenuSheetViewController(title: "正在运行的脚本", items: items)
+        let nav = UINavigationController(rootViewController: sheet)
+        if #available(iOS 15.0, *) {
+            if let presentation = nav.sheetPresentationController {
+                presentation.detents = [.medium(), .large()]
+            }
+        }
+        present(nav, animated: true)
     }
 
     private func showScriptSubMenu(for script: UserScript) {
-        let alert = UIAlertController(title: script.name, message: "匹配规则: \(script.matchPattern)", preferredStyle: .actionSheet)
+        var items: [MenuSheetItem] = []
 
         let scriptCmds = activeTab.registeredCommands.filter { $0.scriptId == script.id }
         for cmd in scriptCmds {
-            alert.addAction(UIAlertAction(title: "⚙️  \(cmd.caption)", style: .default) { [weak self] _ in
+            items.append(MenuSheetItem(title: "⚙️  \(cmd.caption)", style: .default, handler: { [weak self] in
                 self?.activeTab.webView.evaluateJavaScript("window.__gm_invokeMenuCommand(\(cmd.cmdId))", completionHandler: nil)
-            })
+            }))
         }
 
-        alert.addAction(UIAlertAction(title: script.isEnabled ? "⏸ 禁用该脚本" : "▶️ 启用该脚本", style: .default) { [weak self] _ in
+        items.append(MenuSheetItem(title: script.isEnabled ? "⏸ 禁用该脚本" : "▶️ 启用该脚本", style: .default, handler: { [weak self] in
             var scripts = UserScriptStore.shared.loadScripts()
             if let idx = scripts.firstIndex(where: { $0.id == script.id }) {
                 scripts[idx].isEnabled = !script.isEnabled
                 UserScriptStore.shared.saveScripts(scripts)
                 self?.activeTab.reloadUserScripts()
             }
-        })
+        }))
 
-        alert.addAction(UIAlertAction(title: "🧹 清除该脚本缓存数据", style: .default) { _ in
+        items.append(MenuSheetItem(title: "🧹 清除该脚本缓存数据", style: .default, handler: {
             ScriptDataStore.shared.clearDataForScript(scriptId: script.id)
-        })
+        }))
 
-        alert.addAction(UIAlertAction(title: "📝 编辑脚本代码", style: .default) { [weak self] _ in
+        items.append(MenuSheetItem(title: "📝 编辑脚本代码", style: .default, handler: { [weak self] in
             let editor = UserScriptEditorViewController(script: script)
             editor.onSave = { updatedScript in
                 var scripts = UserScriptStore.shared.loadScripts()
@@ -932,9 +924,16 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             }
             let nav = UINavigationController(rootViewController: editor)
             self?.present(nav, animated: true)
-        })
+        }))
 
-        presentActionSheet(alert)
+        let sheet = MenuSheetViewController(title: script.name, items: items)
+        let nav = UINavigationController(rootViewController: sheet)
+        if #available(iOS 15.0, *) {
+            if let presentation = nav.sheetPresentationController {
+                presentation.detents = [.medium(), .large()]
+            }
+        }
+        present(nav, animated: true)
     }
 
     @objc private func showPluginManager() {
@@ -982,51 +981,64 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
     @objc private func showMoreMenu() {
         dismissKeyboard()
 
-        let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        var items: [MenuSheetItem] = []
 
-        alert.addAction(
-            UIAlertAction(
-                title: isFullscreen ? "退出全屏浏览" : "全屏浏览",
-                style: .default
-            ) { [weak self] _ in
-                guard let self else {
-                    return
-                }
-
+        items.append(MenuSheetItem(
+            title: isFullscreen ? "退出全屏浏览" : "全屏浏览",
+            style: .default,
+            handler: { [weak self] in
+                guard let self = self else { return }
                 self.setFullscreen(!self.isFullscreen)
             }
-        )
+        ))
 
         let isEyeOn = EyeProtectionManager.shared.isEnabled
-        alert.addAction(UIAlertAction(title: isEyeOn ? "关闭护眼模式" : "开启护眼模式", style: .default) { [weak self] _ in
-            EyeProtectionManager.shared.toggle(in: self?.view.window)
-        })
+        items.append(MenuSheetItem(
+            title: isEyeOn ? "关闭护眼模式" : "开启护眼模式",
+            style: .default,
+            handler: { [weak self] in
+                EyeProtectionManager.shared.toggle(in: self?.view.window)
+            }
+        ))
 
         let currentUAItem = UserAgentStore.shared.getSelectedItem()
-        alert.addAction(UIAlertAction(title: "浏览器标识: \(currentUAItem.name)", style: .default) { [weak self] _ in
-            self?.showUserAgentManager()
-        })
+        items.append(MenuSheetItem(
+            title: "浏览器标识: \(currentUAItem.name)",
+            style: .default,
+            handler: { [weak self] in
+                self?.showUserAgentManager()
+            }
+        ))
 
         let isDesktop = currentUAItem.id == "default_mac"
-        alert.addAction(UIAlertAction(title: isDesktop ? "切换为移动版网页" : "切换为电脑版网页", style: .default) { [weak self] _ in
-            let targetId = isDesktop ? "default_safari" : "default_mac"
-            UserAgentStore.shared.setSelectedId(targetId)
-            let newUA = UserAgentStore.shared.getSelectedUA()
-            self?.activeTab.webView.customUserAgent = newUA
-            self?.activeTab.webView.reload()
-        })
+        items.append(MenuSheetItem(
+            title: isDesktop ? "切换为移动版网页" : "切换为电脑版网页",
+            style: .default,
+            handler: { [weak self] in
+                let targetId = isDesktop ? "default_safari" : "default_mac"
+                UserAgentStore.shared.setSelectedId(targetId)
+                let newUA = UserAgentStore.shared.getSelectedUA()
+                self?.activeTab.webView.customUserAgent = newUA
+                self?.activeTab.webView.reload()
+            }
+        ))
 
-        alert.addAction(UIAlertAction(title: "清除数据", style: .default) { [weak self] _ in
-            self?.showCleanDataMenu()
-        })
+        items.append(MenuSheetItem(
+            title: "清除数据",
+            style: .default,
+            handler: { [weak self] in
+                self?.showCleanDataMenu()
+            }
+        ))
 
-        alert.addAction(UIAlertAction(title: "管理网站数据", style: .default) { [weak self] _ in
-            let manager = WebsiteDataManagerViewController()
-            let nav = UINavigationController(rootViewController: manager)
-            self?.present(nav, animated: true)
-        })
-
-        presentActionSheet(alert)
+        let sheet = MenuSheetViewController(title: nil, items: items)
+        let nav = UINavigationController(rootViewController: sheet)
+        if #available(iOS 15.0, *) {
+            if let presentation = nav.sheetPresentationController {
+                presentation.detents = [.medium()]
+            }
+        }
+        present(nav, animated: true)
     }
 
     private func showUserAgentManager() {
