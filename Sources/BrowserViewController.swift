@@ -113,6 +113,19 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         progressObservation?.invalidate()
     }
 
+    private func presentActionSheet(_ alert: UIAlertController) {
+        present(alert, animated: true) { [weak alert, weak self] in
+            guard let alert = alert, let superview = alert.view.superview else { return }
+            let tap = UITapGestureRecognizer(target: self, action: #selector(self?.dismissActionSheetOnOutsideTap))
+            tap.cancelsTouchesInView = false
+            superview.addGestureRecognizer(tap)
+        }
+    }
+
+    @objc private func dismissActionSheetOnOutsideTap() {
+        dismiss(animated: true)
+    }
+
     private func configureInstallerObserver() {
         NotificationCenter.default.addObserver(
             self,
@@ -881,7 +894,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             self?.showPluginManager()
         })
 
-        present(alert, animated: true)
+        presentActionSheet(alert)
     }
 
     private func showScriptSubMenu(for script: UserScript) {
@@ -921,7 +934,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             self?.present(nav, animated: true)
         })
 
-        present(alert, animated: true)
+        presentActionSheet(alert)
     }
 
     @objc private func showPluginManager() {
@@ -1013,7 +1026,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             self?.present(nav, animated: true)
         })
 
-        present(alert, animated: true)
+        presentActionSheet(alert)
     }
 
     private func showUserAgentManager() {
