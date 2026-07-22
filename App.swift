@@ -38,7 +38,7 @@ final class TabItem: NSObject, WKNavigationDelegate {
 
         webView.navigationDelegate = self
         webView.allowsBackForwardNavigationGestures = true
-        webView.scrollView.keyboardDismissMode = .interactive
+        webView.scrollView.keyboardDismissMode = .onDrag
         webView.backgroundColor = .systemBackground
     }
 
@@ -141,7 +141,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
     private let progressView = UIProgressView(progressViewStyle: .default)
     private let webContainer = UIView()
     private let homeView = UIView()
-    private let floatingBar = UIVisualEffectView(effect: UIBlurEffect(style: .systemThickMaterial))
+    private let floatingBar = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
 
     private let backButton = UIButton(type: .system)
     private let forwardButton = UIButton(type: .system)
@@ -158,11 +158,22 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
     override func viewDidLoad() {
         super.viewDidLoad()
         configureInterface()
+        configureKeyboardDismissal()
         createNewTab(loadURL: nil)
     }
 
     deinit {
         progressObservation?.invalidate()
+    }
+
+    private func configureKeyboardDismissal() {
+        let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+        tap.cancelsTouchesInView = false
+        view.addGestureRecognizer(tap)
+    }
+
+    @objc private func dismissKeyboard() {
+        view.endEditing(true)
     }
 
     private func configureInterface() {
@@ -175,7 +186,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         addressContainer.backgroundColor = .systemGroupedBackground
         addressContainer.layer.cornerRadius = 12
         addressContainer.layer.borderWidth = 0.5
-        addressContainer.layer.borderColor = UIColor.separator.withAlphaComponent(0.3).cgColor
+        addressContainer.layer.borderColor = UIColor.separator.withAlphaComponent(0.2).cgColor
         addressContainer.clipsToBounds = true
 
         addressField.translatesAutoresizingMaskIntoConstraints = false
@@ -207,16 +218,15 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         homeView.backgroundColor = .systemBackground
 
         floatingBar.translatesAutoresizingMaskIntoConstraints = false
-        floatingBar.layer.cornerRadius = 26
+        floatingBar.layer.cornerRadius = 25
         floatingBar.layer.borderWidth = 0.5
-        floatingBar.layer.borderColor = UIColor.separator.withAlphaComponent(0.2).cgColor
+        floatingBar.layer.borderColor = UIColor.separator.withAlphaComponent(0.18).cgColor
         floatingBar.clipsToBounds = true
         floatingBar.layer.shadowColor = UIColor.black.cgColor
-        floatingBar.layer.shadowOpacity = 0.08
-        floatingBar.layer.shadowRadius = 16
-        floatingBar.layer.shadowOffset = CGSize(width: 0, height: 4)
+        floatingBar.layer.shadowOpacity = 0.06
+        floatingBar.layer.shadowRadius = 12
+        floatingBar.layer.shadowOffset = CGSize(width: 0, height: 3)
 
-        configureHomeView()
         configureFloatingButtons()
 
         addressContainer.addSubview(addressField)
@@ -257,8 +267,8 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
             floatingBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
             floatingBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            floatingBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -10),
-            floatingBar.heightAnchor.constraint(equalToConstant: 52),
+            floatingBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: 2),
+            floatingBar.heightAnchor.constraint(equalToConstant: 50),
 
             webContainer.topAnchor.constraint(equalTo: progressView.bottomAnchor),
             webContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -310,76 +320,6 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
         button.configuration = config
         button.addTarget(self, action: action, for: .touchUpInside)
-    }
-
-    private func configureHomeView() {
-        let logoContainer = UIView()
-        logoContainer.translatesAutoresizingMaskIntoConstraints = false
-        logoContainer.backgroundColor = .systemBlue
-        logoContainer.layer.cornerRadius = 24
-
-        let logoImage = UIImageView(image: UIImage(systemName: "safari.fill"))
-        logoImage.translatesAutoresizingMaskIntoConstraints = false
-        logoImage.tintColor = .white
-        logoImage.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 26, weight: .medium)
-
-        let titleLabel = UILabel()
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.text = "简阅"
-        titleLabel.font = .systemFont(ofSize: 26, weight: .bold)
-        titleLabel.textColor = .label
-
-        let googleButton = makeShortcut(title: "Google", icon: "magnifyingglass", tag: 1)
-        let baiduButton = makeShortcut(title: "百度", icon: "pawprint.fill", tag: 2)
-        let githubButton = makeShortcut(title: "GitHub", icon: "chevron.left.forwardslash.chevron.right", tag: 3)
-
-        let stack = UIStackView(arrangedSubviews: [googleButton, baiduButton, githubButton])
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.axis = .horizontal
-        stack.alignment = .fill
-        stack.distribution = .fillEqually
-        stack.spacing = 12
-
-        homeView.addSubview(logoContainer)
-        logoContainer.addSubview(logoImage)
-        homeView.addSubview(titleLabel)
-        homeView.addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            logoContainer.topAnchor.constraint(equalTo: homeView.topAnchor, constant: 100),
-            logoContainer.centerXAnchor.constraint(equalTo: homeView.centerXAnchor),
-            logoContainer.widthAnchor.constraint(equalToConstant: 48),
-            logoContainer.heightAnchor.constraint(equalToConstant: 48),
-
-            logoImage.centerXAnchor.constraint(equalTo: logoContainer.centerXAnchor),
-            logoImage.centerYAnchor.constraint(equalTo: logoContainer.centerYAnchor),
-
-            titleLabel.topAnchor.constraint(equalTo: logoContainer.bottomAnchor, constant: 14),
-            titleLabel.centerXAnchor.constraint(equalTo: homeView.centerXAnchor),
-
-            stack.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 40),
-            stack.leadingAnchor.constraint(equalTo: homeView.leadingAnchor, constant: 28),
-            stack.trailingAnchor.constraint(equalTo: homeView.trailingAnchor, constant: -28),
-            stack.heightAnchor.constraint(equalToConstant: 80)
-        ])
-    }
-
-    private func makeShortcut(title: String, icon: String, tag: Int) -> UIButton {
-        var config = UIButton.Configuration.tinted()
-        config.title = title
-        config.image = UIImage(systemName: icon)
-        config.imagePlacement = .top
-        config.imagePadding = 6
-        config.baseForegroundColor = .systemBlue
-        config.baseBackgroundColor = .systemBlue
-        config.cornerStyle = .large
-
-        let button = UIButton(type: .system)
-        button.tag = tag
-        button.configuration = config
-        button.addTarget(self, action: #selector(openShortcut(_:)), for: .touchUpInside)
-
-        return button
     }
 
     private func createNewTab(loadURL url: URL?) {
@@ -557,6 +497,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
     }
 
     @objc private func showTabsManager() {
+        dismissKeyboard()
         activeTab.updateSnapshot { [weak self] in
             guard let self = self else { return }
 
@@ -577,21 +518,8 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         }
     }
 
-    @objc private func openShortcut(_ sender: UIButton) {
-        let urlString: String
-        switch sender.tag {
-        case 1: urlString = "https://www.google.com"
-        case 2: urlString = "https://www.baidu.com"
-        case 3: urlString = "https://github.com"
-        default: return
-        }
-
-        if let url = URL(string: urlString) {
-            load(url: url)
-        }
-    }
-
     @objc private func showMoreMenu() {
+        dismissKeyboard()
         let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
 
         if let url = activeTab.url {
@@ -619,6 +547,7 @@ final class TabGridViewController: UIViewController, UICollectionViewDataSource,
     private var tabs: [TabItem]
     private var activeIndex: Int
     private var collectionView: UICollectionView!
+    private let addButton = UIButton(type: .system)
 
     var onSelectTab: ((Int) -> Void)?
     var onCloseTab: ((Int) -> Void)?
@@ -640,7 +569,7 @@ final class TabGridViewController: UIViewController, UICollectionViewDataSource,
         let layout = UICollectionViewFlowLayout()
         layout.minimumInteritemSpacing = 12
         layout.minimumLineSpacing = 16
-        layout.sectionInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        layout.sectionInset = UIEdgeInsets(top: 16, left: 16, bottom: 80, right: 16)
 
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         collectionView.translatesAutoresizingMaskIntoConstraints = false
@@ -649,21 +578,34 @@ final class TabGridViewController: UIViewController, UICollectionViewDataSource,
         collectionView.delegate = self
         collectionView.register(TabGridCell.self, forCellWithReuseIdentifier: "TabGridCell")
 
+        addButton.translatesAutoresizingMaskIntoConstraints = false
+        var config = UIButton.Configuration.filled()
+        config.image = UIImage(systemName: "plus")
+        config.cornerStyle = .capsule
+        config.baseBackgroundColor = .systemBlue
+        config.baseForegroundColor = .white
+        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 22, weight: .medium)
+        addButton.configuration = config
+        addButton.layer.shadowColor = UIColor.black.cgColor
+        addButton.layer.shadowOpacity = 0.15
+        addButton.layer.shadowRadius = 10
+        addButton.layer.shadowOffset = CGSize(width: 0, height: 4)
+        addButton.addTarget(self, action: #selector(handleNewTab), for: .touchUpInside)
+
         view.addSubview(collectionView)
+        view.addSubview(addButton)
 
         NSLayoutConstraint.activate([
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
+            collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "plus"),
-            style: .plain,
-            target: self,
-            action: #selector(handleNewTab)
-        )
+            addButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            addButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            addButton.widthAnchor.constraint(equalToConstant: 54),
+            addButton.heightAnchor.constraint(equalToConstant: 54)
+        ])
 
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             title: "完成",
