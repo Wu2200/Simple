@@ -9,6 +9,43 @@ struct UserScript: Codable {
     var isEnabled: Bool
 }
 
+final class ScriptDataStore {
+    static let shared = ScriptDataStore()
+    private init() {}
+
+    private func makeKey(_ scriptId: String, _ name: String) -> String {
+        return "GM_DATA_\(scriptId)_\(name)"
+    }
+
+    func getValue(scriptId: String, name: String) -> Any? {
+        return UserDefaults.standard.object(forKey: makeKey(scriptId, name))
+    }
+
+    func setValue(scriptId: String, name: String, value: Any) {
+        UserDefaults.standard.set(value, forKey: makeKey(scriptId, name))
+    }
+
+    func deleteValue(scriptId: String, name: String) {
+        UserDefaults.standard.removeObject(forKey: makeKey(scriptId, name))
+    }
+
+    func getAllValuesJSON(scriptId: String) -> String {
+        let prefix = "GM_DATA_\(scriptId)_"
+        var dict: [String: Any] = [:]
+        for (k, v) in UserDefaults.standard.dictionaryRepresentation() {
+            if k.hasPrefix(prefix) {
+                let name = String(k.dropFirst(prefix.count))
+                dict[name] = v
+            }
+        }
+        if let data = try? JSONSerialization.data(withJSONObject: dict, options: []),
+           let str = String(data: data, encoding: .utf8) {
+            return str
+        }
+        return "{}"
+    }
+}
+
 final class CookieLockStore {
     static let shared = CookieLockStore()
     private let key = "locked_cookie_domains_v1"
@@ -66,7 +103,7 @@ final class SearchHistoryStore {
 
 final class UserScriptStore {
     static let shared = UserScriptStore()
-    private let key = "user_tampermonkey_scripts_v4"
+    private let key = "user_tampermonkey_scripts_v5"
 
     private init() {}
 
@@ -149,6 +186,7 @@ final class TabItem: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
     var snapshot: UIImage?
     var registeredCommands: [RegisteredMenuCommand] = []
 
+    private var hasInjectedScriptsForCurrentPage = false
     weak var delegate: TabItemDelegate?
 
     override init() {
@@ -187,6 +225,10 @@ final class TabItem: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
             registeredCommands.append(RegisteredMenuCommand(scriptId: scriptId, cmdId: cmdId, caption: caption))
         } else if action == "unregisterMenuCommand", let cmdId = body["id"] as? Int {
             registeredCommands.removeAll { $0.cmdId == cmdId }
+        } else if action == "setValue", let scriptId = body["scriptId"] as? String, let name = body["name"] as? String, let value = body["value"] {
+            ScriptDataStore.shared.setValue(scriptId: scriptId, name: name, value: value)
+        } else if action == "deleteValue", let scriptId = body["scriptId"] as? String, let name = body["name"] as? String {
+            ScriptDataStore.shared.deleteValue(scriptId: scriptId, name: name)
         } else if action == "xhr", let reqId = body["id"] as? String, let urlString = body["url"] as? String, let targetURL = URL(string: urlString) {
             let method = (body["method"] as? String) ?? "GET"
             var request = URLRequest(url: targetURL)
@@ -229,44 +271,12 @@ final class TabItem: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
             UserScriptStore.shared.isScriptMatching(script: $0, urlString: currentUrlStr)
         }
 
-        let gmPolyfill = """
+        let gmPolyfillBase = """
         if (!window.__gm_polyfilled__) {
             window.__gm_polyfilled__ = true;
             window.unsafeWindow = window;
             window.__gm_menu_commands__ = window.__gm_menu_commands__ || {};
-            
-            (function() {
-                var downX = 0, downY = 0;
-                window.addEventListener('pointerdown', function(e) { downX = e.clientX; downY = e.clientY; }, true);
-                window.addEventListener('pointermove', function(e) {
-                    if (Math.abs(e.clientX - downX) < 4 && Math.abs(e.clientY - downY) < 4) {
-                        e.stopPropagation();
-                    }
-                }, true);
-            })();
 
-            window.GM_registerMenuCommand = function(caption, commandFunc, scriptId) {
-                var id = Math.floor(Math.random() * 1000000);
-                window.__gm_menu_commands__[id] = commandFunc;
-                try {
-                    window.webkit.messageHandlers.GM.postMessage({
-                        action: 'registerMenuCommand',
-                        id: id,
-                        caption: caption,
-                        scriptId: scriptId || window.__current_running_script_id__ || ''
-                    });
-                } catch(e) {}
-                return id;
-            };
-            window.GM_unregisterMenuCommand = function(id) {
-                delete window.__gm_menu_commands__[id];
-                try {
-                    window.webkit.messageHandlers.GM.postMessage({
-                        action: 'unregisterMenuCommand',
-                        id: id
-                    });
-                } catch(e) {}
-            };
             window.__gm_invokeMenuCommand = function(id) {
                 var fn = window.__gm_menu_commands__[id];
                 if (typeof fn === 'function') { fn(); }
@@ -277,16 +287,6 @@ final class TabItem: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
                 style.appendChild(document.createTextNode(css));
                 (document.head || document.documentElement).appendChild(style);
                 return style;
-            };
-            window.GM_setValue = function(name, value) {
-                localStorage.setItem('GM_' + name, JSON.stringify(value));
-            };
-            window.GM_getValue = function(name, defaultValue) {
-                var val = localStorage.getItem('GM_' + name);
-                return val !== null ? JSON.parse(val) : defaultValue;
-            };
-            window.GM_deleteValue = function(name) {
-                localStorage.removeItem('GM_' + name);
             };
             window.GM_log = function(msg) {
                 console.log('[Tampermonkey]', msg);
@@ -332,16 +332,74 @@ final class TabItem: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
         }
         """
 
-        var fullJS = gmPolyfill + "\n"
+        var fullJS = gmPolyfillBase + "\n"
         for script in matchingScripts {
-            fullJS += "window.__current_running_script_id__ = '\(script.id)';\n"
-            fullJS += "try { \n" + script.code + "\n } catch(e) { console.error('[UserScript Error]', e); }\n"
+            let valuesJSON = ScriptDataStore.shared.getAllValuesJSON(scriptId: script.id)
+            fullJS += """
+            (function(scriptId, initialValues) {
+                var values = initialValues || {};
+                var GM_setValue = function(name, val) {
+                    values[name] = val;
+                    try {
+                        window.webkit.messageHandlers.GM.postMessage({
+                            action: 'setValue',
+                            scriptId: scriptId,
+                            name: name,
+                            value: val
+                        });
+                    } catch(e) {}
+                };
+                var GM_getValue = function(name, defaultValue) {
+                    return (name in values) ? values[name] : defaultValue;
+                };
+                var GM_deleteValue = function(name) {
+                    delete values[name];
+                    try {
+                        window.webkit.messageHandlers.GM.postMessage({
+                            action: 'deleteValue',
+                            scriptId: scriptId,
+                            name: name
+                        });
+                    } catch(e) {}
+                };
+                var GM_registerMenuCommand = function(caption, commandFunc) {
+                    var id = Math.floor(Math.random() * 1000000);
+                    window.__gm_menu_commands__[id] = commandFunc;
+                    try {
+                        window.webkit.messageHandlers.GM.postMessage({
+                            action: 'registerMenuCommand',
+                            id: id,
+                            scriptId: scriptId,
+                            caption: caption
+                        });
+                    } catch(e) {}
+                    return id;
+                };
+                var GM_unregisterMenuCommand = function(id) {
+                    delete window.__gm_menu_commands__[id];
+                    try {
+                        window.webkit.messageHandlers.GM.postMessage({
+                            action: 'unregisterMenuCommand',
+                            id: id
+                        });
+                    } catch(e) {}
+                };
+
+                try {
+                    \(script.code)
+                } catch(e) {
+                    console.error('[UserScript Error]', e);
+                }
+            })('\(script.id)', \(valuesJSON));
+            \n
+            """
         }
 
         webView.evaluateJavaScript(fullJS, completionHandler: nil)
     }
 
     func reloadUserScripts() {
+        hasInjectedScriptsForCurrentPage = false
         registeredCommands.removeAll()
         injectAndRunUserScripts()
         webView.reload()
@@ -371,6 +429,7 @@ final class TabItem: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         isLoading = true
+        hasInjectedScriptsForCurrentPage = false
         registeredCommands.removeAll()
         delegate?.tabDidUpdate(self)
     }
@@ -378,7 +437,10 @@ final class TabItem: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         url = webView.url
         title = webView.title ?? url?.host ?? "新标签页"
-        injectAndRunUserScripts()
+        if !hasInjectedScriptsForCurrentPage {
+            hasInjectedScriptsForCurrentPage = true
+            injectAndRunUserScripts()
+        }
         delegate?.tabDidUpdate(self)
     }
 
@@ -386,7 +448,10 @@ final class TabItem: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
         isLoading = false
         url = webView.url
         title = webView.title ?? url?.host ?? "新标签页"
-        injectAndRunUserScripts()
+        if !hasInjectedScriptsForCurrentPage {
+            hasInjectedScriptsForCurrentPage = true
+            injectAndRunUserScripts()
+        }
         updateSnapshot()
         delegate?.tabDidUpdate(self)
     }
