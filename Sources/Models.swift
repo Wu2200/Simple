@@ -9,40 +9,24 @@ struct UserScript: Codable {
     var isEnabled: Bool
 }
 
-final class ScriptDataStore {
-    static let shared = ScriptDataStore()
+final class DomainSettingsStore {
+    static let shared = DomainSettingsStore()
     private init() {}
 
-    private func makeKey(_ scriptId: String, _ name: String) -> String {
-        return "GM_DATA_\(scriptId)_\(name)"
+    private func makeKey(_ domain: String, _ setting: String) -> String {
+        return "DOMAIN_SETTING_\(domain.lowercased())_\(setting)"
     }
 
-    func getValue(scriptId: String, name: String) -> Any? {
-        return UserDefaults.standard.object(forKey: makeKey(scriptId, name))
-    }
-
-    func setValue(scriptId: String, name: String, value: Any) {
-        UserDefaults.standard.set(value, forKey: makeKey(scriptId, name))
-    }
-
-    func deleteValue(scriptId: String, name: String) {
-        UserDefaults.standard.removeObject(forKey: makeKey(scriptId, name))
-    }
-
-    func getAllValuesJSON(scriptId: String) -> String {
-        let prefix = "GM_DATA_\(scriptId)_"
-        var dict: [String: Any] = [:]
-        for (k, v) in UserDefaults.standard.dictionaryRepresentation() {
-            if k.hasPrefix(prefix) {
-                let name = String(k.dropFirst(prefix.count))
-                dict[name] = v
-            }
+    func getBool(domain: String, setting: String, defaultVal: Bool = true) -> Bool {
+        let k = makeKey(domain, setting)
+        if UserDefaults.standard.object(forKey: k) == nil {
+            return defaultVal
         }
-        if let data = try? JSONSerialization.data(withJSONObject: dict, options: []),
-           let str = String(data: data, encoding: .utf8) {
-            return str
-        }
-        return "{}"
+        return UserDefaults.standard.bool(forKey: k)
+    }
+
+    func setBool(domain: String, setting: String, value: Bool) {
+        UserDefaults.standard.set(value, forKey: makeKey(domain, setting))
     }
 }
 
@@ -153,6 +137,12 @@ final class UserScriptStore {
 
     func isScriptMatching(script: UserScript, urlString: String) -> Bool {
         guard script.isEnabled else { return false }
+
+        if let url = URL(string: urlString), let host = url.host {
+            let scriptEnabled = DomainSettingsStore.shared.getBool(domain: host, setting: "userScripts", defaultVal: true)
+            if !scriptEnabled { return false }
+        }
+
         if script.matchPattern == "*" || script.matchPattern.isEmpty { return true }
         guard let url = URL(string: urlString), let host = url.host?.lowercased() else { return true }
         let pattern = script.matchPattern.lowercased()
@@ -166,6 +156,43 @@ final class UserScriptStore {
     }
 }
 
+final class ScriptDataStore {
+    static let shared = ScriptDataStore()
+    private init() {}
+
+    private func makeKey(_ scriptId: String, _ name: String) -> String {
+        return "GM_DATA_\(scriptId)_\(name)"
+    }
+
+    func getValue(scriptId: String, name: String) -> Any? {
+        return UserDefaults.standard.object(forKey: makeKey(scriptId, name))
+    }
+
+    func setValue(scriptId: String, name: String, value: Any) {
+        UserDefaults.standard.set(value, forKey: makeKey(scriptId, name))
+    }
+
+    func deleteValue(scriptId: String, name: String) {
+        UserDefaults.standard.removeObject(forKey: makeKey(scriptId, name))
+    }
+
+    func getAllValuesJSON(scriptId: String) -> String {
+        let prefix = "GM_DATA_\(scriptId)_"
+        var dict: [String: Any] = [:]
+        for (k, v) in UserDefaults.standard.dictionaryRepresentation() {
+            if k.hasPrefix(prefix) {
+                let name = String(k.dropFirst(prefix.count))
+                dict[name] = v
+            }
+        }
+        if let data = try? JSONSerialization.data(withJSONObject: dict, options: []),
+           let str = String(data: data, encoding: .utf8) {
+            return str
+        }
+        return "{}"
+    }
+}
+
 struct RegisteredMenuCommand {
     let scriptId: String
     let cmdId: Int
@@ -175,6 +202,7 @@ struct RegisteredMenuCommand {
 protocol TabItemDelegate: AnyObject {
     func tabDidUpdate(_ tab: TabItem)
     func tabDidFail(_ tab: TabItem, error: Error)
+    func tabRequestNewTab(url: URL)
 }
 
 final class TabItem: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
@@ -493,6 +521,15 @@ final class TabItem: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
         let scheme = url.scheme?.lowercased() ?? ""
 
         if ["http", "https", "about", "data", "blob"].contains(scheme) {
+            if let host = self.url?.host {
+                let alwaysNewTab = DomainSettingsStore.shared.getBool(domain: host, setting: "alwaysNewTab", defaultVal: false)
+                if alwaysNewTab && navigationAction.navigationType == .linkActivated {
+                    decisionHandler(.cancel)
+                    delegate?.tabRequestNewTab(url: url)
+                    return
+                }
+            }
+
             if navigationAction.targetFrame == nil {
                 webView.load(navigationAction.request)
                 decisionHandler(.cancel)
