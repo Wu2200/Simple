@@ -1,0 +1,17 @@
+name: SimpleBrowser
+options:
+  bundleIdPrefix: com.example
+targets:
+  SimpleBrowser:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: App.swift
+    settings:
+      CODE_SIGNING_ALLOWED: NO
+      CODE_SIGN_IDENTITY: ""
+      CODE_SIGNING_REQUIRED: NO
+      GENERATE_INFOPLIST_FILE: YES
+      INFOPLIST_KEY_NSAppTransportSecurity:
+        NSAllowsArbitraryLoads: true
