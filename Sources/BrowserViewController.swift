@@ -82,6 +82,9 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
     private var webBottomPanelConstraint: NSLayoutConstraint?
     private var webBottomFullscreenConstraint: NSLayoutConstraint?
 
+    private let softWhiteBg = UIColor(red: 246.0 / 255.0, green: 246.0 / 255.0, blue: 244.0 / 255.0, alpha: 1.0)
+    private let softCardWhiteBg = UIColor(red: 250.0 / 255.0, green: 250.0 / 255.0, blue: 247.0 / 255.0, alpha: 1.0)
+
     override var preferredStatusBarStyle: UIStatusBarStyle {
         .darkContent
     }
@@ -111,6 +114,19 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
     deinit {
         NotificationCenter.default.removeObserver(self)
         progressObservation?.invalidate()
+    }
+
+    private func presentActionSheet(_ alert: UIAlertController) {
+        present(alert, animated: true) { [weak alert, weak self] in
+            guard let alert = alert, let superview = alert.view.superview else { return }
+            let tap = UITapGestureRecognizer(target: self, action: #selector(self?.dismissActionSheetOnOutsideTap))
+            tap.cancelsTouchesInView = false
+            superview.addGestureRecognizer(tap)
+        }
+    }
+
+    @objc private func dismissActionSheetOnOutsideTap() {
+        dismiss(animated: true)
     }
 
     private func configureInstallerObserver() {
@@ -157,25 +173,26 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
     }
 
     private func configureInterface() {
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = softWhiteBg
 
         webContainer.translatesAutoresizingMaskIntoConstraints = false
-        webContainer.backgroundColor = .systemBackground
+        webContainer.backgroundColor = softWhiteBg
 
         homeView.translatesAutoresizingMaskIntoConstraints = false
-        homeView.backgroundColor = .systemBackground
+        homeView.backgroundColor = softWhiteBg
 
         bottomPanel.translatesAutoresizingMaskIntoConstraints = false
-        bottomPanel.backgroundColor = .secondarySystemBackground
+        bottomPanel.backgroundColor = UIColor(red: 240.0 / 255.0, green: 240.0 / 255.0, blue: 242.0 / 255.0, alpha: 1.0)
 
         addressContainer.translatesAutoresizingMaskIntoConstraints = false
-        addressContainer.backgroundColor = .systemBackground
+        addressContainer.backgroundColor = softCardWhiteBg
         addressContainer.layer.cornerRadius = 18
-        addressContainer.layer.borderWidth = 0
+        addressContainer.layer.borderWidth = 0.5
+        addressContainer.layer.borderColor = UIColor.separator.withAlphaComponent(0.2).cgColor
         addressContainer.layer.shadowColor = UIColor.black.cgColor
-        addressContainer.layer.shadowOpacity = 0.08
-        addressContainer.layer.shadowRadius = 8
-        addressContainer.layer.shadowOffset = CGSize(width: 0, height: 3)
+        addressContainer.layer.shadowOpacity = 0.05
+        addressContainer.layer.shadowRadius = 6
+        addressContainer.layer.shadowOffset = CGSize(width: 0, height: 2)
         addressContainer.clipsToBounds = true
 
         let longPressAddress = UILongPressGestureRecognizer(target: self, action: #selector(handleAddressLongPress(_:)))
@@ -591,7 +608,17 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
     private func showLoadError(_ error: Error) {
         let nsError = error as NSError
 
-        guard nsError.domain != "WebKitErrorDomain" && nsError.code != NSURLErrorCancelled && nsError.code != 102 else {
+        let ignoredErrorCodes: [Int] = [
+            NSURLErrorCancelled,
+            NSURLErrorCannotConnectToHost,
+            NSURLErrorTimedOut,
+            NSURLErrorNetworkConnectionLost,
+            NSURLErrorDNSLookupFailed,
+            NSURLErrorNotConnectedToInternet,
+            102
+        ]
+
+        guard nsError.domain != "WebKitErrorDomain" && !ignoredErrorCodes.contains(nsError.code) else {
             return
         }
 
@@ -1067,7 +1094,12 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
     private func performCleanData(options: Set<CleanOption>) {
         if options.contains(.cache) {
-            let cacheTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+            let cacheTypes: Set<String> = [
+                WKWebsiteDataTypeFetchCache,
+                WKWebsiteDataTypeDiskCache,
+                WKWebsiteDataTypeMemoryCache,
+                WKWebsiteDataTypeOfflineWebApplicationCache
+            ]
             WKWebsiteDataStore.default().removeData(ofTypes: cacheTypes, modifiedSince: .distantPast) {}
         }
 
