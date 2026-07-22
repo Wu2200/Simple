@@ -134,15 +134,17 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         tabs[activeTabIndex]
     }
 
-    private let topBar = UIView()
-    private let addressContainer = UIView()
-    private let addressField = UITextField()
-    private let inlineRefreshButton = UIButton(type: .system)
     private let progressView = UIProgressView(progressViewStyle: .default)
     private let webContainer = UIView()
     private let homeView = UIView()
-    private let floatingBar = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
+    private let bottomPanel = UIView()
 
+    private let addressContainer = UIView()
+    private let lockIconView = UIImageView()
+    private let addressField = UITextField()
+    private let inlineRefreshButton = UIButton(type: .system)
+
+    private let navigationStack = UIStackView()
     private let backButton = UIButton(type: .system)
     private let forwardButton = UIButton(type: .system)
     private let homeButton = UIButton(type: .system)
@@ -179,21 +181,36 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
     private func configureInterface() {
         view.backgroundColor = .systemBackground
 
-        topBar.translatesAutoresizingMaskIntoConstraints = false
-        topBar.backgroundColor = .systemBackground
+        progressView.translatesAutoresizingMaskIntoConstraints = false
+        progressView.progressTintColor = .systemBlue
+        progressView.trackTintColor = .clear
+        progressView.alpha = 0
+
+        webContainer.translatesAutoresizingMaskIntoConstraints = false
+        webContainer.backgroundColor = .systemBackground
+
+        homeView.translatesAutoresizingMaskIntoConstraints = false
+        homeView.backgroundColor = .systemBackground
+
+        bottomPanel.translatesAutoresizingMaskIntoConstraints = false
+        bottomPanel.backgroundColor = .systemBackground
 
         addressContainer.translatesAutoresizingMaskIntoConstraints = false
-        addressContainer.backgroundColor = .systemGroupedBackground
-        addressContainer.layer.cornerRadius = 12
-        addressContainer.layer.borderWidth = 0.5
-        addressContainer.layer.borderColor = UIColor.separator.withAlphaComponent(0.2).cgColor
+        addressContainer.backgroundColor = .secondarySystemBackground
+        addressContainer.layer.cornerRadius = 20
         addressContainer.clipsToBounds = true
+
+        lockIconView.translatesAutoresizingMaskIntoConstraints = false
+        lockIconView.image = UIImage(systemName: "lock.fill")
+        lockIconView.tintColor = .secondaryLabel
+        lockIconView.contentMode = .scaleAspectFit
 
         addressField.translatesAutoresizingMaskIntoConstraints = false
         addressField.delegate = self
         addressField.placeholder = "搜索或输入网址"
         addressField.font = .systemFont(ofSize: 15, weight: .regular)
         addressField.textColor = .label
+        addressField.textAlignment = .center
         addressField.keyboardType = .webSearch
         addressField.returnKeyType = .go
         addressField.autocapitalizationType = .none
@@ -206,109 +223,81 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         inlineRefreshButton.setImage(UIImage(systemName: "arrow.clockwise"), for: .normal)
         inlineRefreshButton.addTarget(self, action: #selector(handleRefreshTap), for: .touchUpInside)
 
-        progressView.translatesAutoresizingMaskIntoConstraints = false
-        progressView.progressTintColor = .systemBlue
-        progressView.trackTintColor = .clear
-        progressView.alpha = 0
-
-        webContainer.translatesAutoresizingMaskIntoConstraints = false
-        webContainer.backgroundColor = .systemBackground
-
-        homeView.translatesAutoresizingMaskIntoConstraints = false
-        homeView.backgroundColor = .systemBackground
-
-        floatingBar.translatesAutoresizingMaskIntoConstraints = false
-        floatingBar.layer.cornerRadius = 25
-        floatingBar.layer.borderWidth = 0.5
-        floatingBar.layer.borderColor = UIColor.separator.withAlphaComponent(0.18).cgColor
-        floatingBar.clipsToBounds = true
-        floatingBar.layer.shadowColor = UIColor.black.cgColor
-        floatingBar.layer.shadowOpacity = 0.06
-        floatingBar.layer.shadowRadius = 12
-        floatingBar.layer.shadowOffset = CGSize(width: 0, height: 3)
-
-        configureFloatingButtons()
-
-        addressContainer.addSubview(addressField)
-        addressContainer.addSubview(inlineRefreshButton)
-        topBar.addSubview(addressContainer)
-
-        view.addSubview(topBar)
-        view.addSubview(progressView)
-        view.addSubview(webContainer)
-        view.addSubview(homeView)
-        view.addSubview(floatingBar)
-
-        NSLayoutConstraint.activate([
-            topBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            topBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            topBar.heightAnchor.constraint(equalToConstant: 48),
-
-            addressContainer.leadingAnchor.constraint(equalTo: topBar.leadingAnchor, constant: 16),
-            addressContainer.trailingAnchor.constraint(equalTo: topBar.trailingAnchor, constant: -16),
-            addressContainer.centerYAnchor.constraint(equalTo: topBar.centerYAnchor),
-            addressContainer.heightAnchor.constraint(equalToConstant: 36),
-
-            addressField.leadingAnchor.constraint(equalTo: addressContainer.leadingAnchor, constant: 12),
-            addressField.trailingAnchor.constraint(equalTo: inlineRefreshButton.leadingAnchor, constant: -4),
-            addressField.topAnchor.constraint(equalTo: addressContainer.topAnchor),
-            addressField.bottomAnchor.constraint(equalTo: addressContainer.bottomAnchor),
-
-            inlineRefreshButton.trailingAnchor.constraint(equalTo: addressContainer.trailingAnchor, constant: -4),
-            inlineRefreshButton.centerYAnchor.constraint(equalTo: addressContainer.centerYAnchor),
-            inlineRefreshButton.widthAnchor.constraint(equalToConstant: 28),
-            inlineRefreshButton.heightAnchor.constraint(equalToConstant: 28),
-
-            progressView.topAnchor.constraint(equalTo: topBar.bottomAnchor),
-            progressView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            progressView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            progressView.heightAnchor.constraint(equalToConstant: 2),
-
-            floatingBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            floatingBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            floatingBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: 2),
-            floatingBar.heightAnchor.constraint(equalToConstant: 50),
-
-            webContainer.topAnchor.constraint(equalTo: progressView.bottomAnchor),
-            webContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            webContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            webContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-
-            homeView.topAnchor.constraint(equalTo: progressView.bottomAnchor),
-            homeView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            homeView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            homeView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
-    }
-
-    private func configureFloatingButtons() {
-        let stack = UIStackView()
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.axis = .horizontal
-        stack.alignment = .fill
-        stack.distribution = .fillEqually
-        stack.spacing = 0
+        navigationStack.translatesAutoresizingMaskIntoConstraints = false
+        navigationStack.axis = .horizontal
+        navigationStack.alignment = .fill
+        navigationStack.distribution = .fillEqually
+        navigationStack.spacing = 0
 
         configurePillButton(backButton, icon: "chevron.backward", action: #selector(goBack))
         configurePillButton(forwardButton, icon: "chevron.forward", action: #selector(goForward))
         configurePillButton(homeButton, icon: "house", action: #selector(goHome))
         configurePillButton(tabsButton, icon: "square.on.square", action: #selector(showTabsManager))
-        configurePillButton(moreButton, icon: "ellipsis", action: #selector(showMoreMenu))
+        configurePillButton(moreButton, icon: "line.3.horizontal", action: #selector(showMoreMenu))
 
-        stack.addArrangedSubview(backButton)
-        stack.addArrangedSubview(forwardButton)
-        stack.addArrangedSubview(homeButton)
-        stack.addArrangedSubview(tabsButton)
-        stack.addArrangedSubview(moreButton)
+        navigationStack.addArrangedSubview(backButton)
+        navigationStack.addArrangedSubview(forwardButton)
+        navigationStack.addArrangedSubview(homeButton)
+        navigationStack.addArrangedSubview(tabsButton)
+        navigationStack.addArrangedSubview(moreButton)
 
-        floatingBar.contentView.addSubview(stack)
+        addressContainer.addSubview(lockIconView)
+        addressContainer.addSubview(addressField)
+        addressContainer.addSubview(inlineRefreshButton)
+
+        bottomPanel.addSubview(addressContainer)
+        bottomPanel.addSubview(navigationStack)
+
+        view.addSubview(progressView)
+        view.addSubview(webContainer)
+        view.addSubview(homeView)
+        view.addSubview(bottomPanel)
 
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: floatingBar.contentView.topAnchor, constant: 2),
-            stack.leadingAnchor.constraint(equalTo: floatingBar.contentView.leadingAnchor, constant: 4),
-            stack.trailingAnchor.constraint(equalTo: floatingBar.contentView.trailingAnchor, constant: -4),
-            stack.bottomAnchor.constraint(equalTo: floatingBar.contentView.bottomAnchor, constant: -2)
+            progressView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            progressView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            progressView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            progressView.heightAnchor.constraint(equalToConstant: 2),
+
+            webContainer.topAnchor.constraint(equalTo: view.topAnchor),
+            webContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            webContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            webContainer.bottomAnchor.constraint(equalTo: bottomPanel.topAnchor),
+
+            homeView.topAnchor.constraint(equalTo: view.topAnchor),
+            homeView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            homeView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            homeView.bottomAnchor.constraint(equalTo: bottomPanel.topAnchor),
+
+            bottomPanel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomPanel.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+
+            addressContainer.topAnchor.constraint(equalTo: bottomPanel.topAnchor, constant: 6),
+            addressContainer.leadingAnchor.constraint(equalTo: bottomPanel.leadingAnchor, constant: 16),
+            addressContainer.trailingAnchor.constraint(equalTo: bottomPanel.trailingAnchor, constant: -16),
+            addressContainer.heightAnchor.constraint(equalToConstant: 40),
+
+            lockIconView.leadingAnchor.constraint(equalTo: addressContainer.leadingAnchor, constant: 14),
+            lockIconView.centerYAnchor.constraint(equalTo: addressContainer.centerYAnchor),
+            lockIconView.widthAnchor.constraint(equalToConstant: 14),
+            lockIconView.heightAnchor.constraint(equalToConstant: 14),
+
+            inlineRefreshButton.trailingAnchor.constraint(equalTo: addressContainer.trailingAnchor, constant: -8),
+            inlineRefreshButton.centerYAnchor.constraint(equalTo: addressContainer.centerYAnchor),
+            inlineRefreshButton.widthAnchor.constraint(equalToConstant: 26),
+            inlineRefreshButton.heightAnchor.constraint(equalToConstant: 26),
+
+            addressField.leadingAnchor.constraint(equalTo: lockIconView.trailingAnchor, constant: 8),
+            addressField.trailingAnchor.constraint(equalTo: inlineRefreshButton.leadingAnchor, constant: -8),
+            addressField.topAnchor.constraint(equalTo: addressContainer.topAnchor),
+            addressField.bottomAnchor.constraint(equalTo: addressContainer.bottomAnchor),
+
+            navigationStack.topAnchor.constraint(equalTo: addressContainer.bottomAnchor, constant: 6),
+            navigationStack.leadingAnchor.constraint(equalTo: bottomPanel.leadingAnchor, constant: 8),
+            navigationStack.trailingAnchor.constraint(equalTo: bottomPanel.trailingAnchor, constant: -8),
+            navigationStack.bottomAnchor.constraint(equalTo: bottomPanel.bottomAnchor, constant: -2),
+            navigationStack.heightAnchor.constraint(equalToConstant: 44)
         ])
     }
 
@@ -354,7 +343,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
         if let currentURL = current.url {
             showBrowserUI()
-            addressField.text = currentURL.absoluteString
+            addressField.text = currentURL.host ?? currentURL.absoluteString
         } else {
             showHomeUI()
         }
@@ -392,7 +381,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
     private func load(url: URL) {
         showBrowserUI()
-        addressField.text = url.absoluteString
+        addressField.text = url.host ?? url.absoluteString
         activeTab.webView.load(URLRequest(url: url))
     }
 
@@ -419,6 +408,13 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
         let refreshIcon = activeTab.isLoading ? "xmark" : "arrow.clockwise"
         inlineRefreshButton.setImage(UIImage(systemName: refreshIcon), for: .normal)
+
+        if isHome {
+            lockIconView.image = UIImage(systemName: "magnifyingglass")
+        } else {
+            let isSecure = activeTab.url?.scheme?.lowercased() == "https"
+            lockIconView.image = UIImage(systemName: isSecure ? "lock.fill" : "lock.open.fill")
+        }
     }
 
     private func destinationURL(from input: String) -> URL? {
@@ -441,7 +437,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
     func tabDidUpdate(_ tab: TabItem) {
         guard tab == activeTab else { return }
         if let url = tab.url {
-            addressField.text = url.absoluteString
+            addressField.text = addressField.isFirstResponder ? url.absoluteString : (url.host ?? url.absoluteString)
         }
         updateUIState()
 
@@ -464,6 +460,20 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         let alert = UIAlertController(title: "无法访问页面", message: nsError.localizedDescription, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "确定", style: .default))
         present(alert, animated: true)
+    }
+
+    func textFieldDidBeginEditing(_ textField: UITextField) {
+        if let url = activeTab.url {
+            textField.text = url.absoluteString
+        }
+        addressField.textAlignment = .left
+    }
+
+    func textFieldDidEndEditing(_ textField: UITextField) {
+        if let url = activeTab.url {
+            textField.text = url.host ?? url.absoluteString
+        }
+        addressField.textAlignment = .center
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
