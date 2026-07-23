@@ -18,7 +18,11 @@ jobs:
         run: brew install xcodegen
 
       - name: Generate Xcode Project
-        run: xcodegen generate
+        run: |
+          xcodegen generate
+          sed -i '' 's/objectVersion = 77;/objectVersion = 56;/g' SimpleBrowser.xcodeproj/project.pbxproj
+          sed -i '' '/preferredProjectObjectVersion = 77;/d' SimpleBrowser.xcodeproj/project.pbxproj
+          sed -i '' '/minimizedProjectReferenceProxies = 1;/d' SimpleBrowser.xcodeproj/project.pbxproj
 
       - name: Build Application
         run: |
