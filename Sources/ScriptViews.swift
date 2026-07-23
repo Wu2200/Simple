@@ -208,10 +208,16 @@ final class CleanDataSelectionViewController: UITableViewController {
     }
 
     @objc private func handleConfirm() {
-        let opts = selectedOptions
-        dismiss(animated: true) { [weak self] in
-            self?.onConfirmClean?(opts)
-        }
+        let alert = UIAlertController(title: "确认清除", message: "确定要清除选中的数据吗？", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "确认", style: .destructive) { [weak self] _ in
+            guard let self = self else { return }
+            let opts = self.selectedOptions
+            self.dismiss(animated: true) {
+                self.onConfirmClean?(opts)
+            }
+        })
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        present(alert, animated: true)
     }
 
     override func numberOfSections(in tableView: UITableView) -> Int {
