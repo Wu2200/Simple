@@ -54,10 +54,9 @@ final class TabItem: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
         webView.allowsBackForwardNavigationGestures = true
         webView.scrollView.keyboardDismissMode = .onDrag
         webView.scrollView.contentInsetAdjustmentBehavior = .automatic
-        webView.backgroundColor = .clear
-        webView.isOpaque = false
-        webView.scrollView.backgroundColor = .clear
-        webView.scrollView.isOpaque = false
+        webView.backgroundColor = .white
+        webView.scrollView.backgroundColor = .white
+        webView.isOpaque = true
     }
 
     deinit {
@@ -306,7 +305,6 @@ final class TabItem: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
     func reloadUserScripts() {
         hasInjectedScriptsForCurrentPage = false
         registeredCommands.removeAll()
-        injectAndRunUserScripts()
         webView.reload()
     }
 
