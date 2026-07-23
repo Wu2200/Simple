@@ -993,6 +993,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
     private func extractPageText() {
         activeTab.webView.evaluateJavaScript("document.body.innerText") { [weak self] result, error in
+            guard let self = self else { return }
             guard let text = result as? String, !text.isEmpty else { return }
             let vc = UIViewController()
             vc.title = "网页正文内容"
@@ -1012,9 +1013,9 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
                 textView.bottomAnchor.constraint(equalTo: vc.view.bottomAnchor)
             ])
 
-            vc.navigationItem.rightBarButtonItem = UIBarButtonItem(title: "完成", style: .done, target: self, action: #selector(dismissModalVC))
+            vc.navigationItem.rightBarButtonItem = UIBarButtonItem(title: "完成", style: .done, target: self, action: #selector(self.dismissModalVC))
             let nav = UINavigationController(rootViewController: vc)
-            self?.present(nav, animated: true)
+            self.present(nav, animated: true)
         }
     }
 
@@ -1152,7 +1153,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         dismissKeyboard()
 
         activeTab.updateSnapshot { [weak self] in
-            guard let self else {
+            guard let self = self else {
                 return
             }
 
