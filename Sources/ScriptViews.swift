@@ -2,21 +2,17 @@ import UIKit
 import WebKit
 
 struct CustomBottomSheetItem {
-    let iconName: String
     let title: String
-    let subtitle: String?
     var isDestructive: Bool = false
     let handler: (() -> Void)?
 }
 
 final class CustomBottomSheetViewController: UITableViewController {
     private let titleString: String
-    private let subtitleString: String?
     private let items: [CustomBottomSheetItem]
 
-    init(title: String, subtitle: String? = nil, items: [CustomBottomSheetItem]) {
+    init(title: String, items: [CustomBottomSheetItem]) {
         self.titleString = title
-        self.subtitleString = subtitle
         self.items = items
         super.init(style: .insetGrouped)
     }
@@ -27,7 +23,7 @@ final class CustomBottomSheetViewController: UITableViewController {
         super.viewDidLoad()
         self.title = titleString
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "SheetCell")
-        navigationItem.rightBarButtonItem = UIBarButtonItem(title: "关闭", style: .plain, target: self, action: #selector(handleClose))
+        navigationItem.rightBarButtonItem = UIBarButtonItem(title: "完成", style: .done, target: self, action: #selector(handleClose))
     }
 
     @objc private func handleClose() {
@@ -43,20 +39,17 @@ final class CustomBottomSheetViewController: UITableViewController {
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: "SheetCell")
+        let cell = tableView.dequeueReusableCell(withIdentifier: "SheetCell", for: indexPath)
         let item = items[indexPath.row]
 
         var content = cell.defaultContentConfiguration()
         content.text = item.title
-        content.secondaryText = item.subtitle
-        content.image = UIImage(systemName: item.iconName)
+        content.textProperties.alignment = .center
 
         if item.isDestructive {
             content.textProperties.color = .systemRed
-            content.imageProperties.tintColor = .systemRed
         } else {
             content.textProperties.color = .label
-            content.imageProperties.tintColor = .systemBlue
         }
 
         cell.contentConfiguration = content
@@ -203,15 +196,17 @@ final class UserAgentManagerViewController: UITableViewController {
     }
 }
 
-enum CleanOption: Hashable {
-    case cache
-    case loginAndData
-    case searchHistory
-    case scriptData
+enum CleanOption: Int, Hashable, CaseIterable {
+    case cache = 0
+    case loginAndData = 1
+    case searchHistory = 2
+    case scriptData = 3
 }
 
 final class CleanDataSelectionViewController: UITableViewController {
     private var selectedOptions: Set<CleanOption> = [.cache]
+    private let savedOptionsKey = "browser_saved_clean_options_v1"
+
     var onConfirmClean: ((Set<CleanOption>) -> Void)?
     var onOpenWebsiteDataManager: (() -> Void)?
 
@@ -220,6 +215,20 @@ final class CleanDataSelectionViewController: UITableViewController {
         title = "清除数据"
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "CleanCell")
         navigationItem.rightBarButtonItem = UIBarButtonItem(title: "取消", style: .plain, target: self, action: #selector(handleCancel))
+
+        loadSavedOptions()
+    }
+
+    private func loadSavedOptions() {
+        if let saved = UserDefaults.standard.array(forKey: savedOptionsKey) as? [Int] {
+            let opts = saved.compactMap { CleanOption(rawValue: $0) }
+            selectedOptions = Set(opts)
+        }
+    }
+
+    private func saveOptions() {
+        let rawValues = selectedOptions.map { $0.rawValue }
+        UserDefaults.standard.set(rawValues, forKey: savedOptionsKey)
     }
 
     @objc private func handleCancel() {
@@ -234,7 +243,7 @@ final class CleanDataSelectionViewController: UITableViewController {
 
         var message = "确定要执行清理操作吗？"
         if selectedOptions.contains(.loginAndData) {
-            message = "⚠️ 注意：勾选了“登录与本地重要数据”，未受保护网站的 Cookies 和本地数据库将被清除，可能需要重新登录。"
+            message = "勾选了“登录与本地数据”，未受保护网站的 Cookies 和本地数据库将被清除。"
         }
 
         let alert = UIAlertController(title: "确认清理", message: message, preferredStyle: .alert)
@@ -258,34 +267,23 @@ final class CleanDataSelectionViewController: UITableViewController {
         return 1
     }
 
-    override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        if section == 0 {
-            return "受 protection 锁保护的网站登录信息与数据库不会被批量清理删除。"
-        }
-        return nil
-    }
-
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
 
         if indexPath.section == 0 {
             let option: CleanOption
             switch indexPath.row {
             case 0:
                 cell.textLabel?.text = "网页缓存文件"
-                cell.detailTextLabel?.text = "包括图片、样式与静态资源 (受保护域名也会清理缓存)"
                 option = .cache
             case 1:
-                cell.textLabel?.text = "登录与本地重要数据"
-                cell.detailTextLabel?.text = "Cookies、Local Storage 与数据库 (受保护域名跳过)"
+                cell.textLabel?.text = "登录与本地数据"
                 option = .loginAndData
             case 2:
                 cell.textLabel?.text = "搜索历史记录"
-                cell.detailTextLabel?.text = "地址栏输入的最近搜索词记录"
                 option = .searchHistory
             default:
                 cell.textLabel?.text = "用户脚本缓存数据"
-                cell.detailTextLabel?.text = "油猴脚本保存在沙箱中的配置数据"
                 option = .scriptData
             }
 
@@ -321,6 +319,7 @@ final class CleanDataSelectionViewController: UITableViewController {
             } else {
                 selectedOptions.insert(option)
             }
+            saveOptions()
             tableView.reloadRows(at: [indexPath], with: .automatic)
         } else if indexPath.section == 1 {
             requestCleanConfirmation()
@@ -371,11 +370,11 @@ final class DomainSettingsViewController: UITableViewController {
             switchView.tag = indexPath.row
 
             if indexPath.row == 0 {
-                cell.textLabel?.text = "视频悬窗 (后续功能)"
+                cell.textLabel?.text = "视频悬窗"
                 switchView.isOn = DomainSettingsStore.shared.getBool(domain: domain, setting: "videoPopout", defaultVal: false)
                 switchView.isEnabled = false
             } else if indexPath.row == 1 {
-                cell.textLabel?.text = "广告过滤 (后续功能)"
+                cell.textLabel?.text = "广告过滤"
                 switchView.isOn = DomainSettingsStore.shared.getBool(domain: domain, setting: "adBlock", defaultVal: false)
                 switchView.isEnabled = false
             } else if indexPath.row == 2 {
@@ -419,7 +418,7 @@ final class WebsiteDataManagerViewController: UITableViewController {
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "DataRecordCell")
 
         navigationItem.leftBarButtonItem = UIBarButtonItem(title: "关闭", style: .plain, target: self, action: #selector(handleDone))
-        navigationItem.rightBarButtonItem = UIBarButtonItem(title: "清理所有缓存", style: .plain, target: self, action: #selector(handleCleanAllCaches))
+        navigationItem.rightBarButtonItem = UIBarButtonItem(title: "清理缓存", style: .plain, target: self, action: #selector(handleCleanAllCaches))
         loadData()
     }
 
@@ -438,7 +437,7 @@ final class WebsiteDataManagerViewController: UITableViewController {
     }
 
     @objc private func handleCleanAllCaches() {
-        let alert = UIAlertController(title: "清理所有临时缓存", message: "将清理所有网站的网页缓存文件，受保护网站的登录与本地数据会得到完整保留。", preferredStyle: .actionSheet)
+        let alert = UIAlertController(title: "清理所有临时缓存", message: "将清理网页缓存文件，受保护网站的登录与本地数据将被保留。", preferredStyle: .actionSheet)
         alert.addAction(UIAlertAction(title: "清理缓存", style: .destructive) { [weak self] _ in
             WebsiteCleaner.shared.cleanCacheOnly {
                 self?.loadData()
@@ -453,20 +452,12 @@ final class WebsiteDataManagerViewController: UITableViewController {
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: "DataRecordCell")
+        let cell = UITableViewCell(style: .default, reuseIdentifier: "DataRecordCell")
         let record = records[indexPath.row]
         let isLocked = CookieLockStore.shared.isLocked(domain: record.displayName)
 
         var content = cell.defaultContentConfiguration()
-        content.text = record.displayName + (isLocked ? " 🔒 (已保护数据)" : "")
-
-        var dataTypesDescs: [String] = []
-        if record.dataTypes.contains(WKWebsiteDataTypeCookies) { dataTypesDescs.append("Cookies") }
-        if record.dataTypes.contains(WKWebsiteDataTypeDiskCache) || record.dataTypes.contains(WKWebsiteDataTypeMemoryCache) { dataTypesDescs.append("网页缓存") }
-        if record.dataTypes.contains(WKWebsiteDataTypeLocalStorage) { dataTypesDescs.append("本地存储") }
-        if record.dataTypes.contains(WKWebsiteDataTypeIndexedDBDatabases) { dataTypesDescs.append("IndexedDB") }
-
-        content.secondaryText = dataTypesDescs.joined(separator: " · ")
+        content.text = record.displayName + (isLocked ? " 🔒" : "")
         cell.contentConfiguration = content
         cell.accessoryType = .disclosureIndicator
         return cell
@@ -489,7 +480,7 @@ final class WebsiteDataManagerViewController: UITableViewController {
             let isLocked = CookieLockStore.shared.isLocked(domain: record.displayName)
 
             if isLocked {
-                let alert = UIAlertController(title: "受保护的网站", message: "\(record.displayName) 当前开启了数据保护，无法直接删除登录与本地数据库。是否仅清理该网站缓存？", preferredStyle: .alert)
+                let alert = UIAlertController(title: "受保护网站", message: "\(record.displayName) 开启了数据保护，是否仅清理该网站缓存？", preferredStyle: .alert)
                 alert.addAction(UIAlertAction(title: "仅清理缓存", style: .default) { [weak self] _ in
                     WebsiteCleaner.shared.cleanSingleDomain(record: record, cacheOnly: true) {
                         self?.loadData()
@@ -528,18 +519,16 @@ final class DomainDataDetailViewController: UITableViewController {
     }
 
     override func numberOfSections(in tableView: UITableView) -> Int {
-        return 3
+        return 2
     }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         if section == 0 { return 1 }
-        if section == 1 { return 1 }
         return 2
     }
 
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        if section == 0 { return "数据保护选项" }
-        if section == 1 { return "当前含有的数据类型" }
+        if section == 0 { return "数据保护" }
         return "数据管理操作"
     }
 
@@ -552,17 +541,6 @@ final class DomainDataDetailViewController: UITableViewController {
             toggle.isOn = isProtected
             toggle.addTarget(self, action: #selector(handleProtectionToggle(_:)), for: .valueChanged)
             cell.accessoryView = toggle
-        } else if indexPath.section == 1 {
-            var dataTypesDescs: [String] = []
-            if record.dataTypes.contains(WKWebsiteDataTypeCookies) { dataTypesDescs.append("Cookies") }
-            if record.dataTypes.contains(WKWebsiteDataTypeDiskCache) || record.dataTypes.contains(WKWebsiteDataTypeMemoryCache) { dataTypesDescs.append("磁盘与内存缓存") }
-            if record.dataTypes.contains(WKWebsiteDataTypeLocalStorage) { dataTypesDescs.append("本地存储 (LocalStorage)") }
-            if record.dataTypes.contains(WKWebsiteDataTypeIndexedDBDatabases) { dataTypesDescs.append("数据库 (IndexedDB)") }
-
-            cell.textLabel?.text = dataTypesDescs.joined(separator: "\n")
-            cell.textLabel?.numberOfLines = 0
-            cell.textLabel?.font = .systemFont(ofSize: 14)
-            cell.selectionStyle = .none
         } else {
             if indexPath.row == 0 {
                 cell.textLabel?.text = "清理该网站临时缓存"
@@ -588,7 +566,7 @@ final class DomainDataDetailViewController: UITableViewController {
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
 
-        if indexPath.section == 2 {
+        if indexPath.section == 1 {
             if indexPath.row == 0 {
                 WebsiteCleaner.shared.cleanSingleDomain(record: record, cacheOnly: true) { [weak self] in
                     self?.onDataChanged?()
@@ -596,7 +574,7 @@ final class DomainDataDetailViewController: UITableViewController {
                 }
             } else {
                 let title = isProtected ? "确定解除保护并删除吗？" : "确定重置该网站吗？"
-                let alert = UIAlertController(title: title, message: "将清除 \(record.displayName) 的所有 Cookies、缓存与本地数据库，且不可恢复。", preferredStyle: .alert)
+                let alert = UIAlertController(title: title, message: "将清除 \(record.displayName) 的所有 Cookies、缓存与本地数据库。", preferredStyle: .alert)
                 alert.addAction(UIAlertAction(title: "重置删除", style: .destructive) { [weak self] _ in
                     guard let self = self else { return }
                     if self.isProtected {
@@ -670,7 +648,6 @@ final class UserScriptManagerViewController: UITableViewController {
 
         var content = cell.defaultContentConfiguration()
         content.text = script.name
-        content.secondaryText = "匹配: \(script.matchPattern)"
         cell.contentConfiguration = content
 
         let toggle = UISwitch()
