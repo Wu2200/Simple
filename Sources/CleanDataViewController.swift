@@ -7,12 +7,12 @@ final class CleanDataSelectionViewController: UIViewController, UITableViewDataS
     var onConfirmClean: ((Set<CleanOption>) -> Void)?
     var onOpenWebsiteDataManager: (() -> Void)?
 
-    private let tableView = UITableView(frame: .zero, style: .plain)
+    private let tableView = UITableView(frame: .zero, style: .insetGrouped)
 
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "清除数据"
-        view.backgroundColor = UIColor(red: 0.95, green: 0.95, blue: 0.96, alpha: 1.0)
+        view.backgroundColor = .systemGroupedBackground
         navigationItem.rightBarButtonItem = UIBarButtonItem(title: "取消", style: .plain, target: self, action: #selector(handleCancel))
 
         setupInterface()
@@ -21,18 +21,16 @@ final class CleanDataSelectionViewController: UIViewController, UITableViewDataS
 
     private func setupInterface() {
         tableView.translatesAutoresizingMaskIntoConstraints = false
-        tableView.backgroundColor = .clear
-        tableView.separatorStyle = .none
         tableView.dataSource = self
         tableView.delegate = self
         tableView.register(CleanOptionRowCell.self, forCellReuseIdentifier: "CleanOptionRowCell")
 
         view.addSubview(tableView)
         NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            tableView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
+            tableView.topAnchor.constraint(equalTo: view.topAnchor),
+            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
     }
 
@@ -65,7 +63,7 @@ final class CleanDataSelectionViewController: UIViewController, UITableViewDataS
 
         let alert = UIAlertController(title: "确认清理", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "取消", style: .cancel, handler: nil))
-        alert.addAction(UIAlertAction(title: "确定清理", style: .destructive) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: "确定清理", style: .default) { [weak self] _ in
             guard let self = self else { return }
             let opts = self.selectedOptions
             self.dismiss(animated: true) {
@@ -85,7 +83,7 @@ final class CleanDataSelectionViewController: UIViewController, UITableViewDataS
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 56
+        return 52
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -110,11 +108,11 @@ final class CleanDataSelectionViewController: UIViewController, UITableViewDataS
             }
 
             let isChecked = selectedOptions.contains(option)
-            cell.configure(title: titleText, isChecked: isChecked, isDestructive: false)
+            cell.configure(title: titleText, isChecked: isChecked, isActionButton: false)
         } else if indexPath.section == 1 {
-            cell.configure(title: "确认清理", isChecked: false, isDestructive: true)
+            cell.configure(title: "确认清理", isChecked: false, isActionButton: true, textColor: .label)
         } else {
-            cell.configure(title: "管理网站数据与锁定保护", isChecked: false, isDestructive: false, textColor: .systemBlue)
+            cell.configure(title: "管理网站数据", isChecked: false, isActionButton: true, textColor: .systemBlue)
         }
 
         return cell
@@ -150,23 +148,12 @@ final class CleanDataSelectionViewController: UIViewController, UITableViewDataS
 }
 
 final class CleanOptionRowCell: UITableViewCell {
-    private let cardView = UIView()
     private let titleLabel = UILabel()
     private let checkIcon = UIImageView()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
-        backgroundColor = .clear
-        selectionStyle = .none
-
-        cardView.translatesAutoresizingMaskIntoConstraints = false
-        cardView.backgroundColor = .white
-        cardView.layer.cornerRadius = 14
-        cardView.layer.shadowColor = UIColor.black.cgColor
-        cardView.layer.shadowOpacity = 0.03
-        cardView.layer.shadowRadius = 6
-        cardView.layer.shadowOffset = CGSize(width: 0, height: 2)
-        cardView.clipsToBounds = false
+        backgroundColor = .secondarySystemGroupedBackground
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .systemFont(ofSize: 15, weight: .medium)
@@ -175,21 +162,16 @@ final class CleanOptionRowCell: UITableViewCell {
         checkIcon.image = UIImage(systemName: "checkmark")
         checkIcon.tintColor = .systemBlue
 
-        cardView.addSubview(titleLabel)
-        cardView.addSubview(checkIcon)
-        contentView.addSubview(cardView)
+        contentView.addSubview(titleLabel)
+        contentView.addSubview(checkIcon)
 
         NSLayoutConstraint.activate([
-            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
-            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
-            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
-            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4),
+            titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: checkIcon.leadingAnchor, constant: -8),
 
-            titleLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16),
-            titleLabel.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
-
-            checkIcon.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16),
-            checkIcon.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
+            checkIcon.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            checkIcon.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             checkIcon.widthAnchor.constraint(equalToConstant: 18),
             checkIcon.heightAnchor.constraint(equalToConstant: 18)
         ])
@@ -197,23 +179,34 @@ final class CleanOptionRowCell: UITableViewCell {
 
     required init?(coder: NSCoder) { nil }
 
-    func configure(title: String, isChecked: Bool, isDestructive: Bool, textColor: UIColor? = nil) {
+    func configure(title: String, isChecked: Bool, isActionButton: Bool, textColor: UIColor? = nil) {
         titleLabel.text = title
-        if let textColor = textColor {
-            titleLabel.textColor = textColor
+        if isActionButton {
+            titleLabel.textColor = textColor ?? .label
             titleLabel.textAlignment = .center
-            titleLabel.font = .systemFont(ofSize: 15, weight: .bold)
+            titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
             checkIcon.isHidden = true
-        } else if isDestructive {
-            titleLabel.textColor = .systemRed
-            titleLabel.textAlignment = .center
-            titleLabel.font = .systemFont(ofSize: 15, weight: .bold)
-            checkIcon.isHidden = true
+            NSLayoutConstraint.deactivate(contentView.constraints)
+            NSLayoutConstraint.activate([
+                titleLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+                titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
+            ])
         } else {
             titleLabel.textColor = .label
             titleLabel.textAlignment = .left
             titleLabel.font = .systemFont(ofSize: 15, weight: .medium)
             checkIcon.isHidden = !isChecked
+            NSLayoutConstraint.deactivate(contentView.constraints)
+            NSLayoutConstraint.activate([
+                titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+                titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+                titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: checkIcon.leadingAnchor, constant: -8),
+
+                checkIcon.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+                checkIcon.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+                checkIcon.widthAnchor.constraint(equalToConstant: 18),
+                checkIcon.heightAnchor.constraint(equalToConstant: 18)
+            ])
         }
     }
 }
