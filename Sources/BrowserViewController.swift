@@ -182,19 +182,18 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         homeView.backgroundColor = themeBg
 
         bottomPanel.translatesAutoresizingMaskIntoConstraints = false
-        bottomPanel.backgroundColor = UIColor.white.withAlphaComponent(0.96)
-        bottomPanel.layer.cornerRadius = 24
-        bottomPanel.layer.shadowColor = UIColor.black.cgColor
-        bottomPanel.layer.shadowOpacity = 0.08
-        bottomPanel.layer.shadowRadius = 16
-        bottomPanel.layer.shadowOffset = CGSize(width: 0, height: 6)
+        bottomPanel.backgroundColor = themeBg
         bottomPanel.clipsToBounds = false
 
         addressContainer.translatesAutoresizingMaskIntoConstraints = false
-        addressContainer.backgroundColor = UIColor(white: 0.95, alpha: 1.0)
+        addressContainer.backgroundColor = .white
         addressContainer.layer.cornerRadius = 18
         addressContainer.layer.borderWidth = 0
-        addressContainer.clipsToBounds = true
+        addressContainer.layer.shadowColor = UIColor.black.cgColor
+        addressContainer.layer.shadowOpacity = 0.06
+        addressContainer.layer.shadowRadius = 10
+        addressContainer.layer.shadowOffset = CGSize(width: 0, height: 3)
+        addressContainer.clipsToBounds = false
 
         let longPressAddress = UILongPressGestureRecognizer(target: self, action: #selector(handleAddressLongPress(_:)))
         longPressAddress.minimumPressDuration = 0.6
@@ -286,11 +285,11 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         view.addSubview(homeView)
         view.addSubview(bottomPanel)
 
-        bottomPanelBottomConstraint = bottomPanel.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
+        bottomPanelBottomConstraint = bottomPanel.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -4)
 
         webTopSafeConstraint = webContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor)
         webTopFullscreenConstraint = webContainer.topAnchor.constraint(equalTo: view.topAnchor)
-        webBottomPanelConstraint = webContainer.bottomAnchor.constraint(equalTo: bottomPanel.topAnchor, constant: -10)
+        webBottomPanelConstraint = webContainer.bottomAnchor.constraint(equalTo: bottomPanel.topAnchor, constant: -6)
         webBottomFullscreenConstraint = webContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor)
 
         webTopSafeConstraint?.isActive = true
@@ -305,14 +304,14 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             homeView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             homeView.bottomAnchor.constraint(equalTo: webContainer.bottomAnchor),
 
-            bottomPanel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            bottomPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            bottomPanel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             bottomPanelBottomConstraint!,
-            bottomPanel.heightAnchor.constraint(equalToConstant: 94),
+            bottomPanel.heightAnchor.constraint(equalToConstant: 92),
 
-            addressContainer.topAnchor.constraint(equalTo: bottomPanel.topAnchor, constant: 8),
-            addressContainer.leadingAnchor.constraint(equalTo: bottomPanel.leadingAnchor, constant: 12),
-            addressContainer.trailingAnchor.constraint(equalTo: bottomPanel.trailingAnchor, constant: -12),
+            addressContainer.topAnchor.constraint(equalTo: bottomPanel.topAnchor, constant: 4),
+            addressContainer.leadingAnchor.constraint(equalTo: bottomPanel.leadingAnchor, constant: 16),
+            addressContainer.trailingAnchor.constraint(equalTo: bottomPanel.trailingAnchor, constant: -16),
             addressContainer.heightAnchor.constraint(equalToConstant: 36),
 
             siteSettingsButton.leadingAnchor.constraint(equalTo: addressContainer.leadingAnchor, constant: 8),
@@ -340,11 +339,11 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             addressField.topAnchor.constraint(equalTo: addressContainer.topAnchor),
             addressField.bottomAnchor.constraint(equalTo: addressContainer.bottomAnchor),
 
-            navigationStack.topAnchor.constraint(equalTo: addressContainer.bottomAnchor, constant: 6),
-            navigationStack.leadingAnchor.constraint(equalTo: bottomPanel.leadingAnchor, constant: 12),
-            navigationStack.trailingAnchor.constraint(equalTo: bottomPanel.trailingAnchor, constant: -12),
-            navigationStack.bottomAnchor.constraint(equalTo: bottomPanel.bottomAnchor, constant: -8),
-            navigationStack.heightAnchor.constraint(equalToConstant: 36)
+            navigationStack.topAnchor.constraint(equalTo: addressContainer.bottomAnchor, constant: 8),
+            navigationStack.leadingAnchor.constraint(equalTo: bottomPanel.leadingAnchor, constant: 16),
+            navigationStack.trailingAnchor.constraint(equalTo: bottomPanel.trailingAnchor, constant: -16),
+            navigationStack.bottomAnchor.constraint(equalTo: bottomPanel.bottomAnchor, constant: -4),
+            navigationStack.heightAnchor.constraint(equalToConstant: 38)
         ])
     }
 
@@ -395,9 +394,13 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
 
         button.configuration = configuration
-        button.backgroundColor = UIColor(white: 0.95, alpha: 1.0)
+        button.backgroundColor = .white
         button.layer.cornerRadius = 14
-        button.clipsToBounds = true
+        button.layer.shadowColor = UIColor.black.cgColor
+        button.layer.shadowOpacity = 0.05
+        button.layer.shadowRadius = 6
+        button.layer.shadowOffset = CGSize(width: 0, height: 2)
+        button.clipsToBounds = false
         if let action = action {
             button.addTarget(self, action: action, for: .touchUpInside)
         }
@@ -725,8 +728,8 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
     @objc private func keyboardWillChangeFrame(_ notification: Notification) {
         guard addressField.isFirstResponder else {
-            if bottomPanelBottomConstraint?.constant != -12 {
-                bottomPanelBottomConstraint?.constant = -12
+            if bottomPanelBottomConstraint?.constant != -4 {
+                bottomPanelBottomConstraint?.constant = -4
                 view.layoutIfNeeded()
             }
             return
@@ -746,7 +749,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         let curve = userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
         let options = UIView.AnimationOptions(rawValue: curve << 16)
 
-        bottomPanelBottomConstraint?.constant = -(offset + 12)
+        bottomPanelBottomConstraint?.constant = -(offset + 4)
 
         UIView.animate(withDuration: duration, delay: 0, options: options) {
             self.view.layoutIfNeeded()
@@ -755,8 +758,8 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
     @objc private func keyboardWillHide(_ notification: Notification) {
         guard addressField.isFirstResponder else {
-            if bottomPanelBottomConstraint?.constant != -12 {
-                bottomPanelBottomConstraint?.constant = -12
+            if bottomPanelBottomConstraint?.constant != -4 {
+                bottomPanelBottomConstraint?.constant = -4
                 view.layoutIfNeeded()
             }
             return
@@ -764,7 +767,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
         guard let userInfo = notification.userInfo,
               let duration = userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval else {
-            bottomPanelBottomConstraint?.constant = -12
+            bottomPanelBottomConstraint?.constant = -4
             view.layoutIfNeeded()
             return
         }
@@ -772,7 +775,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         let curve = userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
         let options = UIView.AnimationOptions(rawValue: curve << 16)
 
-        bottomPanelBottomConstraint?.constant = -12
+        bottomPanelBottomConstraint?.constant = -4
 
         UIView.animate(withDuration: duration, delay: 0, options: options) {
             self.view.layoutIfNeeded()
@@ -817,10 +820,6 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
                 switchTab(to: sourceIndex)
                 return
             }
-            if tabs.count > 1 {
-                closeTab(at: activeTabIndex)
-                return
-            }
             showHomeUI()
             return
         }
@@ -833,8 +832,6 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             let closingIndex = activeTabIndex
             closeTab(at: closingIndex)
             switchTab(to: sourceIndex)
-        } else if tabs.count > 1 {
-            closeTab(at: activeTabIndex)
         } else {
             showHomeUI()
         }
