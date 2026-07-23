@@ -204,19 +204,23 @@ final class CleanDataSelectionViewController: UITableViewController {
         super.viewDidLoad()
         title = "清除数据"
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "CleanCell")
-        navigationItem.rightBarButtonItem = UIBarButtonItem(title: "完成", style: .done, target: self, action: #selector(handleConfirm))
+        navigationItem.rightBarButtonItem = UIBarButtonItem(title: "完成", style: .done, target: self, action: #selector(requestCleanConfirmation))
     }
 
-    @objc private func handleConfirm() {
-        let alert = UIAlertController(title: "确认清除", message: "确定要清除选中的数据吗？", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "确认", style: .destructive) { [weak self] _ in
+    @objc private func requestCleanConfirmation() {
+        guard !selectedOptions.isEmpty else {
+            dismiss(animated: true)
+            return
+        }
+        let alert = UIAlertController(title: "确认清理", message: "确定要清理选中的网站数据吗？", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel, handler: nil))
+        alert.addAction(UIAlertAction(title: "确定清理", style: .destructive) { [weak self] _ in
             guard let self = self else { return }
             let opts = self.selectedOptions
             self.dismiss(animated: true) {
                 self.onConfirmClean?(opts)
             }
         })
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
         present(alert, animated: true)
     }
 
@@ -283,7 +287,7 @@ final class CleanDataSelectionViewController: UITableViewController {
             }
             tableView.reloadRows(at: [indexPath], with: .automatic)
         } else if indexPath.section == 1 {
-            handleConfirm()
+            requestCleanConfirmation()
         } else {
             dismiss(animated: true) { [weak self] in
                 self?.onOpenWebsiteDataManager?()
@@ -404,12 +408,15 @@ final class WebsiteDataManagerViewController: UITableViewController {
             let unlockedRecords = self.records.filter { !CookieLockStore.shared.isLocked(domain: $0.displayName) }
             let types = WKWebsiteDataStore.allWebsiteDataTypes()
             WKWebsiteDataStore.default().removeData(ofTypes: types, for: unlockedRecords) {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                DispatchQueue.main.async {
+                    let unlockedNames = Set(unlockedRecords.map { $0.displayName })
+                    self.records.removeAll { unlockedNames.contains($0.displayName) }
+                    self.tableView.reloadData()
                     self.loadData()
                 }
             }
         })
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel, handler: nil))
         present(alert, animated: true)
     }
 
@@ -437,6 +444,7 @@ final class WebsiteDataManagerViewController: UITableViewController {
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        guard indexPath.row < records.count else { return }
         let record = records[indexPath.row]
         let isLocked = CookieLockStore.shared.isLocked(domain: record.displayName)
 
@@ -448,12 +456,14 @@ final class WebsiteDataManagerViewController: UITableViewController {
         alert.addAction(UIAlertAction(title: "🗑 删除此网站数据", style: .destructive) { [weak self] _ in
             let types = WKWebsiteDataStore.allWebsiteDataTypes()
             WKWebsiteDataStore.default().removeData(ofTypes: types, for: [record]) {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                DispatchQueue.main.async {
+                    self?.records.removeAll { $0.displayName == record.displayName }
+                    self?.tableView.reloadData()
                     self?.loadData()
                 }
             }
         })
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel, handler: nil))
         present(alert, animated: true)
     }
 
@@ -462,9 +472,10 @@ final class WebsiteDataManagerViewController: UITableViewController {
             let record = records[indexPath.row]
             let types = WKWebsiteDataStore.allWebsiteDataTypes()
             WKWebsiteDataStore.default().removeData(ofTypes: types, for: [record]) { [weak self] in
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                DispatchQueue.main.async {
                     self?.records.remove(at: indexPath.row)
                     tableView.deleteRows(at: [indexPath], with: .automatic)
+                    self?.loadData()
                 }
             }
         }
@@ -681,7 +692,7 @@ final class UserScriptEditorViewController: UIViewController {
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         textView.autocapitalizationType = .none
         textView.autocorrectionType = .no
-        textView.text = script?.code ?? "// ==UserScript==\n// @name         自定义油猴脚本\n// @match        *\n// ==/UserScript==\n\n(function() {\n    'use strict';\n})();"
+        textView.text = script?.code ?? "(function() {\n    'use strict';\n})();"
 
         view.addSubview(nameField)
         view.addSubview(matchField)
