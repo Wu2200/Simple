@@ -267,7 +267,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
         addressContainer.translatesAutoresizingMaskIntoConstraints = false
         addressContainer.backgroundColor = .white
-        addressContainer.layer.cornerRadius = 18
+        addressContainer.layer.cornerRadius = 19
         addressContainer.layer.borderWidth = 0
         addressContainer.layer.shadowColor = UIColor.black.cgColor
         addressContainer.layer.shadowOpacity = 0.05
@@ -397,17 +397,17 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             addressContainer.topAnchor.constraint(equalTo: bottomPanel.topAnchor, constant: 6),
             addressContainer.leadingAnchor.constraint(equalTo: bottomPanel.leadingAnchor, constant: 16),
             addressContainer.trailingAnchor.constraint(equalTo: bottomPanel.trailingAnchor, constant: -16),
-            addressContainer.heightAnchor.constraint(equalToConstant: 36),
+            addressContainer.heightAnchor.constraint(equalToConstant: 38),
 
             siteSettingsButton.leadingAnchor.constraint(equalTo: addressContainer.leadingAnchor, constant: 8),
             siteSettingsButton.centerYAnchor.constraint(equalTo: addressContainer.centerYAnchor),
             siteSettingsButton.widthAnchor.constraint(equalToConstant: 24),
             siteSettingsButton.heightAnchor.constraint(equalToConstant: 24),
 
-            progressView.leadingAnchor.constraint(equalTo: addressContainer.leadingAnchor, constant: 12),
-            progressView.trailingAnchor.constraint(equalTo: addressContainer.trailingAnchor, constant: -12),
+            progressView.leadingAnchor.constraint(equalTo: addressContainer.leadingAnchor, constant: 14),
+            progressView.trailingAnchor.constraint(equalTo: addressContainer.trailingAnchor, constant: -14),
             progressView.bottomAnchor.constraint(equalTo: addressContainer.bottomAnchor),
-            progressView.heightAnchor.constraint(equalToConstant: 2),
+            progressView.heightAnchor.constraint(equalToConstant: 1.5),
 
             refreshButton.trailingAnchor.constraint(equalTo: addressContainer.trailingAnchor, constant: -8),
             refreshButton.centerYAnchor.constraint(equalTo: addressContainer.centerYAnchor),
@@ -480,7 +480,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
         button.configuration = configuration
         button.backgroundColor = .white
-        button.layer.cornerRadius = 14
+        button.layer.cornerRadius = 12
         button.layer.shadowColor = UIColor.black.cgColor
         button.layer.shadowOpacity = 0.04
         button.layer.shadowRadius = 6
@@ -901,7 +901,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         }
 
         if activeTab.isDisplayingFailurePage {
-            activeTab.isDisplayingFailurePage = false
+            activeTab.clearFailureState()
             failureOverlayView.isHidden = true
             if let targetURL = activeTab.failedURL {
                 activeTab.webView.load(URLRequest(url: targetURL))
@@ -923,21 +923,22 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
     @objc private func goBack() {
         if activeTab.isDisplayingFailurePage {
-            activeTab.isDisplayingFailurePage = false
+            activeTab.clearFailureState()
             failureOverlayView.isHidden = true
 
             if activeTab.webView.canGoBack {
                 activeTab.webView.goBack()
-                return
-            }
-            if let prevURL = activeTab.previousURL, prevURL != activeTab.failedURL {
-                load(url: prevURL)
+                updateUIState()
                 return
             }
             if let sourceID = activeTab.sourceTabID, let sourceIndex = tabs.firstIndex(where: { $0.id == sourceID }) {
                 let closingIndex = activeTabIndex
                 closeTab(at: closingIndex)
                 switchTab(to: sourceIndex)
+                return
+            }
+            if let prevURL = activeTab.previousURL, prevURL != activeTab.failedURL {
+                load(url: prevURL)
                 return
             }
             if tabs.count > 1 {
@@ -950,12 +951,12 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
         if activeTab.webView.canGoBack {
             activeTab.webView.goBack()
-        } else if let prevURL = activeTab.previousURL, prevURL != activeTab.url {
-            load(url: prevURL)
         } else if let sourceID = activeTab.sourceTabID, let sourceIndex = tabs.firstIndex(where: { $0.id == sourceID }) {
             let closingIndex = activeTabIndex
             closeTab(at: closingIndex)
             switchTab(to: sourceIndex)
+        } else if let prevURL = activeTab.previousURL, prevURL != activeTab.url {
+            load(url: prevURL)
         } else if tabs.count > 1 {
             closeTab(at: activeTabIndex)
         } else {
