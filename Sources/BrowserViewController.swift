@@ -334,9 +334,6 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         progressView.trackTintColor = .clear
         progressView.progress = 0
         progressView.alpha = 0
-        progressView.layer.cornerRadius = 19
-        progressView.layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-        progressView.clipsToBounds = true
 
         navigationStack.translatesAutoresizingMaskIntoConstraints = false
         navigationStack.axis = .horizontal
@@ -408,10 +405,10 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             siteSettingsButton.widthAnchor.constraint(equalToConstant: 24),
             siteSettingsButton.heightAnchor.constraint(equalToConstant: 24),
 
-            progressView.leadingAnchor.constraint(equalTo: addressContainer.leadingAnchor),
-            progressView.trailingAnchor.constraint(equalTo: addressContainer.trailingAnchor),
-            progressView.bottomAnchor.constraint(equalTo: addressContainer.bottomAnchor),
-            progressView.heightAnchor.constraint(equalToConstant: 2.5),
+            progressView.leadingAnchor.constraint(equalTo: addressContainer.leadingAnchor, constant: 16),
+            progressView.trailingAnchor.constraint(equalTo: addressContainer.trailingAnchor, constant: -16),
+            progressView.bottomAnchor.constraint(equalTo: addressContainer.bottomAnchor, constant: -2),
+            progressView.heightAnchor.constraint(equalToConstant: 2),
 
             refreshButton.trailingAnchor.constraint(equalTo: addressContainer.trailingAnchor, constant: -8),
             refreshButton.centerYAnchor.constraint(equalTo: addressContainer.centerYAnchor),
@@ -1104,7 +1101,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
         items.append(CustomBottomSheetItem(
             title: "清除脚本缓存数据",
-            isDestructive: true,
+            isDestructive: false,
             handler: {
                 ScriptDataStore.shared.clearDataForScript(scriptId: script.id)
             }
@@ -1223,7 +1220,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
         items.append(CustomBottomSheetItem(
             title: "清除数据与管理网站",
-            isDestructive: true,
+            isDestructive: false,
             handler: { [weak self] in
                 self?.showCleanDataMenu()
             }
