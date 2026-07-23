@@ -333,6 +333,12 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         progressView.trackTintColor = .clear
         progressView.progress = 0
         progressView.alpha = 0
+        progressView.layer.cornerRadius = 0.75
+        progressView.clipsToBounds = true
+        for subview in progressView.subviews {
+            subview.layer.cornerRadius = 0.75
+            subview.clipsToBounds = true
+        }
 
         navigationStack.translatesAutoresizingMaskIntoConstraints = false
         navigationStack.axis = .horizontal
@@ -397,16 +403,16 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             addressContainer.topAnchor.constraint(equalTo: bottomPanel.topAnchor, constant: 6),
             addressContainer.leadingAnchor.constraint(equalTo: bottomPanel.leadingAnchor, constant: 16),
             addressContainer.trailingAnchor.constraint(equalTo: bottomPanel.trailingAnchor, constant: -16),
-            addressContainer.heightAnchor.constraint(equalToConstant: 38),
+            addressContainer.heightAnchor.constraint(equalToConstant: 40),
 
             siteSettingsButton.leadingAnchor.constraint(equalTo: addressContainer.leadingAnchor, constant: 8),
             siteSettingsButton.centerYAnchor.constraint(equalTo: addressContainer.centerYAnchor),
             siteSettingsButton.widthAnchor.constraint(equalToConstant: 24),
             siteSettingsButton.heightAnchor.constraint(equalToConstant: 24),
 
-            progressView.leadingAnchor.constraint(equalTo: addressContainer.leadingAnchor, constant: 14),
-            progressView.trailingAnchor.constraint(equalTo: addressContainer.trailingAnchor, constant: -14),
-            progressView.bottomAnchor.constraint(equalTo: addressContainer.bottomAnchor),
+            progressView.leadingAnchor.constraint(equalTo: addressContainer.leadingAnchor, constant: 20),
+            progressView.trailingAnchor.constraint(equalTo: addressContainer.trailingAnchor, constant: -20),
+            progressView.bottomAnchor.constraint(equalTo: addressContainer.bottomAnchor, constant: -2),
             progressView.heightAnchor.constraint(equalToConstant: 1.5),
 
             refreshButton.trailingAnchor.constraint(equalTo: addressContainer.trailingAnchor, constant: -8),
@@ -642,7 +648,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             failureTitleLabel.text = "无法连接服务器"
             failureReasonLabel.text = err.localizedDescription
         }
-        addressField.text = tab.failedURL?.host ?? tab.failedURL?.absoluteString ?? tab.url?.host ?? ""
+        addressField.text = tab.failedURL?.host ?? tab.failedURL?.absoluteString ?? ""
         resetProgress()
         updateUIState()
     }
@@ -849,7 +855,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
         let frameInView = view.convert(keyboardFrame, from: nil)
         let overlap = max(0, view.bounds.maxY - frameInView.minY)
-        let offset = max(0, overlap - view.safeAreaInsets.bottom)
+        let offset = max(0, overlap)
 
         let curve = userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
         let options = UIView.AnimationOptions(rawValue: curve << 16)
@@ -901,13 +907,10 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         }
 
         if activeTab.isDisplayingFailurePage {
-            activeTab.clearFailureState()
+            guard let targetURL = activeTab.failedURL else { return }
+            activeTab.isDisplayingFailurePage = false
             failureOverlayView.isHidden = true
-            if let targetURL = activeTab.failedURL {
-                activeTab.webView.load(URLRequest(url: targetURL))
-            } else {
-                activeTab.webView.reload()
-            }
+            activeTab.webView.load(URLRequest(url: targetURL))
             updateUIState()
             return
         }
@@ -923,28 +926,33 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
     @objc private func goBack() {
         if activeTab.isDisplayingFailurePage {
+            let originURL = activeTab.failureOriginURL
+            let sourceID = activeTab.sourceTabID
+
             activeTab.clearFailureState()
             failureOverlayView.isHidden = true
+
+            if let originURL = originURL {
+                activeTab.url = originURL
+                addressField.text = originURL.host ?? originURL.absoluteString
+                updateUIState()
+                return
+            }
+
+            if let sourceID = sourceID,
+               let sourceIndex = tabs.firstIndex(where: { $0.id == sourceID }) {
+                let closingIndex = activeTabIndex
+                closeTab(at: closingIndex)
+                switchTab(to: sourceIndex)
+                return
+            }
 
             if activeTab.webView.canGoBack {
                 activeTab.webView.goBack()
                 updateUIState()
                 return
             }
-            if let sourceID = activeTab.sourceTabID, let sourceIndex = tabs.firstIndex(where: { $0.id == sourceID }) {
-                let closingIndex = activeTabIndex
-                closeTab(at: closingIndex)
-                switchTab(to: sourceIndex)
-                return
-            }
-            if let prevURL = activeTab.previousURL, prevURL != activeTab.failedURL {
-                load(url: prevURL)
-                return
-            }
-            if tabs.count > 1 {
-                closeTab(at: activeTabIndex)
-                return
-            }
+
             showHomeUI()
             return
         }
