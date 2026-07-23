@@ -588,35 +588,6 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         updateUIState()
     }
 
-    private func showLoadError(_ error: Error) {
-        let nsError = error as NSError
-        guard nsError.domain != "WebKitErrorDomain" && nsError.code != NSURLErrorCancelled && nsError.code != 102 else { return }
-
-        var title = "无法访问页面"
-        var reason = nsError.localizedDescription
-
-        if nsError.code == NSURLErrorNotConnectedToInternet {
-            title = "网络连接未建立"
-            reason = "请检查您的网络设置、Wi-Fi 或蜂窝移动数据。"
-        } else if nsError.code == NSURLErrorCannotFindHost {
-            title = "找不到服务器"
-            reason = "DNS 解析失败，请检查输入的网址或代理配置。"
-        } else if nsError.code == NSURLErrorCannotConnectToHost {
-            title = "无法连接服务器"
-            reason = "目标服务器拒绝连接或无法响应。"
-        } else if nsError.code == NSURLErrorTimedOut {
-            title = "连接超时"
-            reason = "网络响应过慢，请求已被中断。"
-        }
-
-        let alert = UIAlertController(title: title, message: reason, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "重新加载", style: .default) { [weak self] _ in
-            self?.activeTab.webView.reload()
-        })
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
-        present(alert, animated: true)
-    }
-
     private func updateAddressEditingAppearance() {
         let editing = addressField.isFirstResponder
 
@@ -673,7 +644,6 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         }
 
         updateUIState()
-        showLoadError(error)
     }
 
     func textFieldDidBeginEditing(_ textField: UITextField) {
@@ -919,7 +889,13 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         ))
 
         let panel = CustomBottomSheetViewController(title: "正在运行的脚本", subtitle: currentHost, items: items)
-        present(panel, animated: true)
+        let nav = UINavigationController(rootViewController: panel)
+        if #available(iOS 15.0, *) {
+            if let presentation = nav.sheetPresentationController {
+                presentation.detents = [.medium(), .large()]
+            }
+        }
+        present(nav, animated: true)
     }
 
     private func showScriptSubMenu(for script: UserScript) {
@@ -981,7 +957,13 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         ))
 
         let panel = CustomBottomSheetViewController(title: script.name, subtitle: "脚本规则控制", items: items)
-        present(panel, animated: true)
+        let nav = UINavigationController(rootViewController: panel)
+        if #available(iOS 15.0, *) {
+            if let presentation = nav.sheetPresentationController {
+                presentation.detents = [.medium(), .large()]
+            }
+        }
+        present(nav, animated: true)
     }
 
     @objc private func showPluginManager() {
@@ -1086,7 +1068,13 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         ))
 
         let panel = CustomBottomSheetViewController(title: "浏览器工具", subtitle: nil, items: items)
-        present(panel, animated: true)
+        let nav = UINavigationController(rootViewController: panel)
+        if #available(iOS 15.0, *) {
+            if let presentation = nav.sheetPresentationController {
+                presentation.detents = [.medium(), .large()]
+            }
+        }
+        present(nav, animated: true)
     }
 
     private func showUserAgentManager() {
