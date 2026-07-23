@@ -25,6 +25,7 @@ final class TabItem: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
     var previousURL: URL?
 
     private var hasInjectedScriptsForCurrentPage = false
+    private var isLoadingFailureDocument = false
     private var navigationActionURL: URL?
     weak var delegate: TabItemDelegate?
 
@@ -83,10 +84,18 @@ final class TabItem: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
         snapshot = nil
     }
 
+    func clearFailureState() {
+        isDisplayingFailurePage = false
+        failedURL = nil
+        failureError = nil
+    }
+
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any], let action = body["action"] as? String else { return }
 
-        if action == "registerMenuCommand", let cmdId = body["id"] as? Int, let caption = body["caption"] as? String {
+        if action == "goBackAction" {
+            delegate?.tabRequestGoBack(self)
+        } else if action == "registerMenuCommand", let cmdId = body["id"] as? Int, let caption = body["caption"] as? String {
             let scriptId = (body["scriptId"] as? String) ?? ""
             registeredCommands.removeAll { $0.cmdId == cmdId || ($0.scriptId == scriptId && $0.caption == caption) }
             registeredCommands.append(RegisteredMenuCommand(scriptId: scriptId, cmdId: cmdId, caption: caption))
@@ -321,7 +330,9 @@ final class TabItem: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         isLoading = true
-        isDisplayingFailurePage = false
+        if !isLoadingFailureDocument {
+            isDisplayingFailurePage = false
+        }
         hasInjectedScriptsForCurrentPage = false
         registeredCommands.removeAll()
         delegate?.tabDidUpdate(self)
@@ -370,7 +381,6 @@ final class TabItem: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
         isDisplayingFailurePage = true
         failedURL = navigationActionURL ?? webView.url
         failureError = error
-        url = failedURL
         delegate?.tabDidFail(self, error: error)
     }
 
@@ -383,7 +393,6 @@ final class TabItem: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
         isDisplayingFailurePage = true
         failedURL = navigationActionURL ?? webView.url
         failureError = error
-        url = failedURL
         delegate?.tabDidFail(self, error: error)
     }
 
