@@ -46,7 +46,7 @@ final class CustomBottomSheetViewController: UIViewController {
 
         containerView.translatesAutoresizingMaskIntoConstraints = false
         containerView.backgroundColor = UIColor(red: 0.95, green: 0.95, blue: 0.96, alpha: 1.0)
-        containerView.layer.cornerRadius = 28
+        containerView.layer.cornerRadius = 24
         containerView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         containerView.clipsToBounds = true
 
@@ -99,18 +99,18 @@ final class CustomBottomSheetViewController: UIViewController {
             handleBar.widthAnchor.constraint(equalToConstant: 36),
             handleBar.heightAnchor.constraint(equalToConstant: 5),
 
-            titleLabel.topAnchor.constraint(equalTo: handleBar.bottomAnchor, constant: 12),
-            titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 18),
+            titleLabel.topAnchor.constraint(equalTo: handleBar.bottomAnchor, constant: 10),
+            titleLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
 
             closeButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -14),
             closeButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
             closeButton.widthAnchor.constraint(equalToConstant: 28),
             closeButton.heightAnchor.constraint(equalToConstant: 28),
 
-            contentContainer.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 14),
+            contentContainer.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
             contentContainer.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
             contentContainer.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
-            contentContainer.bottomAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.bottomAnchor, constant: -14)
+            contentContainer.bottomAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.bottomAnchor, constant: -12)
         ])
     }
 
@@ -118,7 +118,7 @@ final class CustomBottomSheetViewController: UIViewController {
         let mainStack = UIStackView()
         mainStack.translatesAutoresizingMaskIntoConstraints = false
         mainStack.axis = .vertical
-        mainStack.spacing = 10
+        mainStack.spacing = 8
 
         let gridItems = items.filter { !$0.isDestructive }
         let destructiveItems = items.filter { $0.isDestructive }
@@ -128,12 +128,12 @@ final class CustomBottomSheetViewController: UIViewController {
             if idx % 2 == 0 {
                 rowStack = UIStackView()
                 rowStack?.axis = .horizontal
-                rowStack?.spacing = 10
+                rowStack?.spacing = 8
                 rowStack?.distribution = .fillEqually
                 mainStack.addArrangedSubview(rowStack!)
             }
 
-            let card = createCardButton(item: item, tag: idx, height: 72)
+            let card = createCardButton(item: item, tag: idx, height: 48)
             rowStack?.addArrangedSubview(card)
         }
 
@@ -144,7 +144,7 @@ final class CustomBottomSheetViewController: UIViewController {
 
         for item in destructiveItems {
             let idx = items.firstIndex(where: { $0.title == item.title }) ?? 0
-            let card = createCardButton(item: item, tag: idx, height: 52)
+            let card = createCardButton(item: item, tag: idx, height: 46)
             mainStack.addArrangedSubview(card)
         }
 
@@ -161,10 +161,10 @@ final class CustomBottomSheetViewController: UIViewController {
         let itemsStack = UIStackView()
         itemsStack.translatesAutoresizingMaskIntoConstraints = false
         itemsStack.axis = .vertical
-        itemsStack.spacing = 8
+        itemsStack.spacing = 6
 
         for (idx, item) in items.enumerated() {
-            let card = createCardButton(item: item, tag: idx, height: 50)
+            let card = createCardButton(item: item, tag: idx, height: 46)
             itemsStack.addArrangedSubview(card)
         }
 
@@ -181,10 +181,10 @@ final class CustomBottomSheetViewController: UIViewController {
         let card = TouchButton(type: .custom)
         card.translatesAutoresizingMaskIntoConstraints = false
         card.backgroundColor = .white
-        card.layer.cornerRadius = 18
+        card.layer.cornerRadius = 14
         card.layer.shadowColor = UIColor.black.cgColor
         card.layer.shadowOpacity = 0.03
-        card.layer.shadowRadius = 8
+        card.layer.shadowRadius = 6
         card.layer.shadowOffset = CGSize(width: 0, height: 2)
         card.clipsToBounds = false
         card.tag = tag
@@ -192,19 +192,19 @@ final class CustomBottomSheetViewController: UIViewController {
 
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = .systemFont(ofSize: 15, weight: .medium)
+        label.font = .systemFont(ofSize: 14, weight: .medium)
         label.textColor = item.isDestructive ? .systemRed : .label
         label.text = item.title
         label.textAlignment = .center
-        label.numberOfLines = 2
+        label.numberOfLines = 1
 
         card.addSubview(label)
         NSLayoutConstraint.activate([
             card.heightAnchor.constraint(equalToConstant: height),
             label.centerXAnchor.constraint(equalTo: card.centerXAnchor),
             label.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            label.leadingAnchor.constraint(greaterThanOrEqualTo: card.leadingAnchor, constant: 10),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: card.trailingAnchor, constant: -10)
+            label.leadingAnchor.constraint(greaterThanOrEqualTo: card.leadingAnchor, constant: 8),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: card.trailingAnchor, constant: -8)
         ])
 
         return card
@@ -219,6 +219,313 @@ final class CustomBottomSheetViewController: UIViewController {
 
     @objc private func handleDismiss() {
         dismiss(animated: true)
+    }
+}
+
+final class UserScriptManagerViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate {
+    private var allScripts: [UserScript] = []
+    private var filteredScripts: [UserScript] = []
+
+    var onScriptsUpdated: (() -> Void)?
+
+    private let searchField = UITextField()
+    private let tableView = UITableView(frame: .zero, style: .plain)
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = UIColor(red: 0.95, green: 0.95, blue: 0.96, alpha: 1.0)
+        setupInterface()
+        loadData()
+    }
+
+    private func setupInterface() {
+        let headerView = UIView()
+        headerView.translatesAutoresizingMaskIntoConstraints = false
+
+        let titleLabel = UILabel()
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .systemFont(ofSize: 26, weight: .bold)
+        titleLabel.textColor = .label
+        titleLabel.text = "管理面板"
+
+        let addButton = TouchButton(type: .system)
+        addButton.translatesAutoresizingMaskIntoConstraints = false
+        addButton.setImage(UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)), for: .normal)
+        addButton.tintColor = .systemRed
+        addButton.addTarget(self, action: #selector(handleAddScript), for: .touchUpInside)
+
+        let closeButton = TouchButton(type: .system)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)), for: .normal)
+        closeButton.tintColor = .tertiaryLabel
+        closeButton.addTarget(self, action: #selector(handleClose), for: .touchUpInside)
+
+        headerView.addSubview(titleLabel)
+        headerView.addSubview(addButton)
+        headerView.addSubview(closeButton)
+
+        let searchContainer = UIView()
+        searchContainer.translatesAutoresizingMaskIntoConstraints = false
+        searchContainer.backgroundColor = UIColor(white: 0.9, alpha: 0.5)
+        searchContainer.layer.cornerRadius = 10
+        searchContainer.clipsToBounds = true
+
+        let searchIcon = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+        searchIcon.translatesAutoresizingMaskIntoConstraints = false
+        searchIcon.tintColor = .secondaryLabel
+
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+        searchField.placeholder = "搜索"
+        searchField.font = .systemFont(ofSize: 15)
+        searchField.delegate = self
+        searchField.addTarget(self, action: #selector(handleSearchChanged), for: .editingChanged)
+
+        searchContainer.addSubview(searchIcon)
+        searchContainer.addSubview(searchField)
+
+        let sectionHeader = UILabel()
+        sectionHeader.translatesAutoresizingMaskIntoConstraints = false
+        sectionHeader.font = .systemFont(ofSize: 12, weight: .semibold)
+        sectionHeader.textColor = .secondaryLabel
+        sectionHeader.text = "USERSCRIPT"
+
+        let cardContainer = UIView()
+        cardContainer.translatesAutoresizingMaskIntoConstraints = false
+        cardContainer.backgroundColor = .white
+        cardContainer.layer.cornerRadius = 16
+        cardContainer.clipsToBounds = true
+
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        tableView.backgroundColor = .clear
+        tableView.separatorStyle = .singleLine
+        tableView.separatorInset = UIEdgeInsets(top: 0, left: 66, bottom: 0, right: 0)
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.register(UserScriptRowCell.self, forCellReuseIdentifier: "UserScriptRowCell")
+
+        cardContainer.addSubview(tableView)
+
+        view.addSubview(headerView)
+        view.addSubview(searchContainer)
+        view.addSubview(sectionHeader)
+        view.addSubview(cardContainer)
+
+        NSLayoutConstraint.activate([
+            headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            headerView.heightAnchor.constraint(equalToConstant: 36),
+
+            titleLabel.leadingAnchor.constraint(equalTo: headerView.leadingAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+
+            closeButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor),
+            closeButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+            closeButton.widthAnchor.constraint(equalToConstant: 28),
+            closeButton.heightAnchor.constraint(equalToConstant: 28),
+
+            addButton.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -16),
+            addButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+            addButton.widthAnchor.constraint(equalToConstant: 28),
+            addButton.heightAnchor.constraint(equalToConstant: 28),
+
+            searchContainer.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 14),
+            searchContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            searchContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            searchContainer.heightAnchor.constraint(equalToConstant: 36),
+
+            searchIcon.leadingAnchor.constraint(equalTo: searchContainer.leadingAnchor, constant: 10),
+            searchIcon.centerYAnchor.constraint(equalTo: searchContainer.centerYAnchor),
+            searchIcon.widthAnchor.constraint(equalToConstant: 16),
+            searchIcon.heightAnchor.constraint(equalToConstant: 16),
+
+            searchField.leadingAnchor.constraint(equalTo: searchIcon.trailingAnchor, constant: 8),
+            searchField.trailingAnchor.constraint(equalTo: searchContainer.trailingAnchor, constant: -10),
+            searchField.topAnchor.constraint(equalTo: searchContainer.topAnchor),
+            searchField.bottomAnchor.constraint(equalTo: searchContainer.bottomAnchor),
+
+            sectionHeader.topAnchor.constraint(equalTo: searchContainer.bottomAnchor, constant: 16),
+            sectionHeader.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
+
+            cardContainer.topAnchor.constraint(equalTo: sectionHeader.bottomAnchor, constant: 8),
+            cardContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            cardContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            cardContainer.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20),
+
+            tableView.topAnchor.constraint(equalTo: cardContainer.topAnchor),
+            tableView.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor),
+            tableView.bottomAnchor.constraint(equalTo: cardContainer.bottomAnchor)
+        ])
+    }
+
+    private func loadData() {
+        allScripts = UserScriptStore.shared.loadScripts()
+        applyFilter()
+    }
+
+    private func applyFilter() {
+        let query = searchField.text?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
+        if query.isEmpty {
+            filteredScripts = allScripts
+        } else {
+            filteredScripts = allScripts.filter { $0.name.lowercased().contains(query) || $0.matchPattern.lowercased().contains(query) }
+        }
+        tableView.reloadData()
+    }
+
+    @objc private func handleSearchChanged() {
+        applyFilter()
+    }
+
+    @objc private func handleAddScript() {
+        let editor = UserScriptEditorViewController(script: nil)
+        editor.onSave = { [weak self] newScript in
+            self?.allScripts.append(newScript)
+            UserScriptStore.shared.saveScripts(self?.allScripts ?? [])
+            self?.loadData()
+            self?.onScriptsUpdated?()
+        }
+        let nav = UINavigationController(rootViewController: editor)
+        present(nav, animated: true)
+    }
+
+    @objc private func handleClose() {
+        dismiss(animated: true)
+    }
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return filteredScripts.count
+    }
+
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        return 68
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "UserScriptRowCell", for: indexPath) as! UserScriptRowCell
+        let script = filteredScripts[indexPath.row]
+        cell.configure(script: script, index: indexPath.row)
+        cell.onToggle = { [weak self] isEnabled in
+            guard let self = self else { return }
+            if let idx = self.allScripts.firstIndex(where: { $0.id == script.id }) {
+                self.allScripts[idx].isEnabled = isEnabled
+                UserScriptStore.shared.saveScripts(self.allScripts)
+                self.onScriptsUpdated?()
+            }
+        }
+        return cell
+    }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        let script = filteredScripts[indexPath.row]
+        let editor = UserScriptEditorViewController(script: script)
+        editor.onSave = { [weak self] updatedScript in
+            if let idx = self?.allScripts.firstIndex(where: { $0.id == updatedScript.id }) {
+                self?.allScripts[idx] = updatedScript
+                UserScriptStore.shared.saveScripts(self?.allScripts ?? [])
+                self?.loadData()
+                self?.onScriptsUpdated?()
+            }
+        }
+        let nav = UINavigationController(rootViewController: editor)
+        present(nav, animated: true)
+    }
+
+    func tableView(_ tableView: UITableView, commit editingStyle: UITableViewCell.EditingStyle, forRowAt indexPath: IndexPath) {
+        if editingStyle == .delete {
+            let script = filteredScripts[indexPath.row]
+            ScriptDataStore.shared.clearDataForScript(scriptId: script.id)
+            allScripts.removeAll { $0.id == script.id }
+            UserScriptStore.shared.saveScripts(allScripts)
+            applyFilter()
+            onScriptsUpdated?()
+        }
+    }
+}
+
+final class UserScriptRowCell: UITableViewCell {
+    private let iconView = UIView()
+    private let iconLabel = UILabel()
+    private let nameLabel = UILabel()
+    private let matchLabel = UILabel()
+    private let toggleSwitch = UISwitch()
+
+    var onToggle: ((Bool) -> Void)?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        backgroundColor = .white
+
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.backgroundColor = UIColor(white: 0.95, alpha: 1.0)
+        iconView.layer.cornerRadius = 12
+        iconView.clipsToBounds = true
+
+        iconLabel.translatesAutoresizingMaskIntoConstraints = false
+        iconLabel.font = .systemFont(ofSize: 18, weight: .bold)
+        iconLabel.textColor = .systemRed
+        iconLabel.textAlignment = .center
+
+        iconView.addSubview(iconLabel)
+
+        nameLabel.translatesAutoresizingMaskIntoConstraints = false
+        nameLabel.font = .systemFont(ofSize: 15, weight: .bold)
+        nameLabel.textColor = .label
+
+        matchLabel.translatesAutoresizingMaskIntoConstraints = false
+        matchLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        matchLabel.textColor = .secondaryLabel
+        matchLabel.lineBreakMode = .byTruncatingTail
+
+        toggleSwitch.translatesAutoresizingMaskIntoConstraints = false
+        toggleSwitch.onTintColor = .systemRed
+        toggleSwitch.addTarget(self, action: #selector(handleSwitch), for: .valueChanged)
+
+        let labelStack = UIStackView(arrangedSubviews: [nameLabel, matchLabel])
+        labelStack.translatesAutoresizingMaskIntoConstraints = false
+        labelStack.axis = .vertical
+        labelStack.spacing = 3
+
+        contentView.addSubview(iconView)
+        contentView.addSubview(labelStack)
+        contentView.addSubview(toggleSwitch)
+
+        NSLayoutConstraint.activate([
+            iconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 14),
+            iconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 42),
+            iconView.heightAnchor.constraint(equalToConstant: 42),
+
+            iconLabel.centerXAnchor.constraint(equalTo: iconView.centerXAnchor),
+            iconLabel.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
+
+            labelStack.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 12),
+            labelStack.trailingAnchor.constraint(equalTo: toggleSwitch.leadingAnchor, constant: -10),
+            labelStack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+
+            toggleSwitch.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -14),
+            toggleSwitch.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    func configure(script: UserScript, index: Int) {
+        nameLabel.text = script.name
+        matchLabel.text = "匹配: \(script.matchPattern)"
+        toggleSwitch.isOn = script.isEnabled
+
+        let firstChar = String(script.name.prefix(1))
+        iconLabel.text = firstChar.isEmpty ? "网" : firstChar
+
+        let colors: [UIColor] = [.systemRed, .systemOrange, .systemBlue, .systemPurple, .systemTeal]
+        iconLabel.textColor = colors[index % colors.count]
+    }
+
+    @objc private func handleSwitch() {
+        onToggle?(toggleSwitch.isOn)
     }
 }
 
@@ -745,109 +1052,6 @@ final class DomainDataDetailViewController: UITableViewController {
                 alert.addAction(UIAlertAction(title: "取消", style: .cancel, handler: nil))
                 present(alert, animated: true)
             }
-        }
-    }
-}
-
-final class UserScriptManagerViewController: UITableViewController {
-    private var scripts: [UserScript] = []
-    var onScriptsUpdated: (() -> Void)?
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        title = "油猴脚本扩展"
-        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "ScriptCell")
-
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "plus"),
-            style: .plain,
-            target: self,
-            action: #selector(handleAddScript)
-        )
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            title: "完成",
-            style: .done,
-            target: self,
-            action: #selector(handleDone)
-        )
-
-        loadData()
-    }
-
-    private func loadData() {
-        scripts = UserScriptStore.shared.loadScripts()
-        tableView.reloadData()
-    }
-
-    @objc private func handleAddScript() {
-        let editor = UserScriptEditorViewController(script: nil)
-        editor.onSave = { [weak self] newScript in
-            self?.scripts.append(newScript)
-            UserScriptStore.shared.saveScripts(self?.scripts ?? [])
-            self?.tableView.reloadData()
-            self?.onScriptsUpdated?()
-        }
-        let nav = UINavigationController(rootViewController: editor)
-        present(nav, animated: true)
-    }
-
-    @objc private func handleDone() {
-        dismiss(animated: true)
-    }
-
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        scripts.count
-    }
-
-    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "ScriptCell", for: indexPath)
-        let script = scripts[indexPath.row]
-
-        var content = cell.defaultContentConfiguration()
-        content.text = script.name
-        cell.contentConfiguration = content
-
-        let toggle = UISwitch()
-        toggle.isOn = script.isEnabled
-        toggle.tag = indexPath.row
-        toggle.addTarget(self, action: #selector(handleToggle(_:)), for: .valueChanged)
-        cell.accessoryView = toggle
-
-        return cell
-    }
-
-    @objc private func handleToggle(_ sender: UISwitch) {
-        let index = sender.tag
-        scripts[index].isEnabled = sender.isOn
-        UserScriptStore.shared.saveScripts(scripts)
-        onScriptsUpdated?()
-    }
-
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        let script = scripts[indexPath.row]
-        let editor = UserScriptEditorViewController(script: script)
-        editor.onSave = { [weak self] updatedScript in
-            self?.scripts[indexPath.row] = updatedScript
-            UserScriptStore.shared.saveScripts(self?.scripts ?? [])
-            self?.tableView.reloadData()
-            self?.onScriptsUpdated?()
-        }
-        let nav = UINavigationController(rootViewController: editor)
-        present(nav, animated: true)
-    }
-
-    override func tableView(
-        _ tableView: UITableView,
-        commit editingStyle: UITableViewCell.EditingStyle,
-        forRowAt indexPath: IndexPath
-    ) {
-        if editingStyle == .delete {
-            let script = scripts[indexPath.row]
-            ScriptDataStore.shared.clearDataForScript(scriptId: script.id)
-            scripts.remove(at: indexPath.row)
-            UserScriptStore.shared.saveScripts(scripts)
-            tableView.deleteRows(at: [indexPath], with: .automatic)
-            onScriptsUpdated?()
         }
     }
 }
