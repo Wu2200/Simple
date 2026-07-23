@@ -133,7 +133,7 @@ final class CustomBottomSheetViewController: UIViewController {
                 mainStack.addArrangedSubview(rowStack!)
             }
 
-            let card = createCardButton(item: item, tag: idx, height: 48)
+            let card = createCardButton(item: item, tag: idx, height: 44)
             rowStack?.addArrangedSubview(card)
         }
 
@@ -144,7 +144,7 @@ final class CustomBottomSheetViewController: UIViewController {
 
         for item in destructiveItems {
             let idx = items.firstIndex(where: { $0.title == item.title }) ?? 0
-            let card = createCardButton(item: item, tag: idx, height: 46)
+            let card = createCardButton(item: item, tag: idx, height: 44)
             mainStack.addArrangedSubview(card)
         }
 
@@ -164,7 +164,7 @@ final class CustomBottomSheetViewController: UIViewController {
         itemsStack.spacing = 6
 
         for (idx, item) in items.enumerated() {
-            let card = createCardButton(item: item, tag: idx, height: 46)
+            let card = createCardButton(item: item, tag: idx, height: 44)
             itemsStack.addArrangedSubview(card)
         }
 
@@ -289,26 +289,17 @@ final class UserScriptManagerViewController: UIViewController, UITableViewDataSo
         sectionHeader.textColor = .secondaryLabel
         sectionHeader.text = "USERSCRIPT"
 
-        let cardContainer = UIView()
-        cardContainer.translatesAutoresizingMaskIntoConstraints = false
-        cardContainer.backgroundColor = .white
-        cardContainer.layer.cornerRadius = 16
-        cardContainer.clipsToBounds = true
-
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.backgroundColor = .clear
-        tableView.separatorStyle = .singleLine
-        tableView.separatorInset = UIEdgeInsets(top: 0, left: 66, bottom: 0, right: 0)
+        tableView.separatorStyle = .none
         tableView.dataSource = self
         tableView.delegate = self
         tableView.register(UserScriptRowCell.self, forCellReuseIdentifier: "UserScriptRowCell")
 
-        cardContainer.addSubview(tableView)
-
         view.addSubview(headerView)
         view.addSubview(searchContainer)
         view.addSubview(sectionHeader)
-        view.addSubview(cardContainer)
+        view.addSubview(tableView)
 
         NSLayoutConstraint.activate([
             headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
@@ -347,15 +338,10 @@ final class UserScriptManagerViewController: UIViewController, UITableViewDataSo
             sectionHeader.topAnchor.constraint(equalTo: searchContainer.bottomAnchor, constant: 16),
             sectionHeader.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
 
-            cardContainer.topAnchor.constraint(equalTo: sectionHeader.bottomAnchor, constant: 8),
-            cardContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            cardContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            cardContainer.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20),
-
-            tableView.topAnchor.constraint(equalTo: cardContainer.topAnchor),
-            tableView.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor),
-            tableView.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: cardContainer.bottomAnchor)
+            tableView.topAnchor.constraint(equalTo: sectionHeader.bottomAnchor, constant: 8),
+            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            tableView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -10)
         ])
     }
 
@@ -399,7 +385,7 @@ final class UserScriptManagerViewController: UIViewController, UITableViewDataSo
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 68
+        return 74
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -446,6 +432,7 @@ final class UserScriptManagerViewController: UIViewController, UITableViewDataSo
 }
 
 final class UserScriptRowCell: UITableViewCell {
+    private let cardView = UIView()
     private let iconView = UIView()
     private let iconLabel = UILabel()
     private let nameLabel = UILabel()
@@ -456,7 +443,17 @@ final class UserScriptRowCell: UITableViewCell {
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
-        backgroundColor = .white
+        backgroundColor = .clear
+        selectionStyle = .none
+
+        cardView.translatesAutoresizingMaskIntoConstraints = false
+        cardView.backgroundColor = .white
+        cardView.layer.cornerRadius = 16
+        cardView.layer.shadowColor = UIColor.black.cgColor
+        cardView.layer.shadowOpacity = 0.04
+        cardView.layer.shadowRadius = 8
+        cardView.layer.shadowOffset = CGSize(width: 0, height: 2)
+        cardView.clipsToBounds = false
 
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.backgroundColor = UIColor(white: 0.95, alpha: 1.0)
@@ -488,13 +485,20 @@ final class UserScriptRowCell: UITableViewCell {
         labelStack.axis = .vertical
         labelStack.spacing = 3
 
-        contentView.addSubview(iconView)
-        contentView.addSubview(labelStack)
-        contentView.addSubview(toggleSwitch)
+        cardView.addSubview(iconView)
+        cardView.addSubview(labelStack)
+        cardView.addSubview(toggleSwitch)
+
+        contentView.addSubview(cardView)
 
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 14),
-            iconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
+            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4),
+
+            iconView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 12),
+            iconView.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 42),
             iconView.heightAnchor.constraint(equalToConstant: 42),
 
@@ -503,10 +507,10 @@ final class UserScriptRowCell: UITableViewCell {
 
             labelStack.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 12),
             labelStack.trailingAnchor.constraint(equalTo: toggleSwitch.leadingAnchor, constant: -10),
-            labelStack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            labelStack.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
 
-            toggleSwitch.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -14),
-            toggleSwitch.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
+            toggleSwitch.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -12),
+            toggleSwitch.centerYAnchor.constraint(equalTo: cardView.centerYAnchor)
         ])
     }
 
@@ -667,20 +671,40 @@ enum CleanOption: Int, Hashable, CaseIterable {
     case scriptData = 3
 }
 
-final class CleanDataSelectionViewController: UITableViewController {
+final class CleanDataSelectionViewController: UIViewController, UITableViewDataSource, UITableViewDelegate {
     private var selectedOptions: Set<CleanOption> = [.cache]
     private let savedOptionsKey = "browser_saved_clean_options_v1"
 
     var onConfirmClean: ((Set<CleanOption>) -> Void)?
     var onOpenWebsiteDataManager: (() -> Void)?
 
+    private let tableView = UITableView(frame: .zero, style: .plain)
+
     override func viewDidLoad() {
         super.viewDidLoad()
         title = "清除数据"
-        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "CleanCell")
+        view.backgroundColor = UIColor(red: 0.95, green: 0.95, blue: 0.96, alpha: 1.0)
         navigationItem.rightBarButtonItem = UIBarButtonItem(title: "取消", style: .plain, target: self, action: #selector(handleCancel))
 
+        setupInterface()
         loadSavedOptions()
+    }
+
+    private func setupInterface() {
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        tableView.backgroundColor = .clear
+        tableView.separatorStyle = .none
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.register(CleanOptionRowCell.self, forCellReuseIdentifier: "CleanOptionRowCell")
+
+        view.addSubview(tableView)
+        NSLayoutConstraint.activate([
+            tableView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            tableView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
+        ])
     }
 
     private func loadSavedOptions() {
@@ -722,51 +746,52 @@ final class CleanDataSelectionViewController: UITableViewController {
         present(alert, animated: true)
     }
 
-    override func numberOfSections(in tableView: UITableView) -> Int {
+    func numberOfSections(in tableView: UITableView) -> Int {
         return 3
     }
 
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         if section == 0 { return 4 }
         return 1
     }
 
-    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        return 56
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "CleanOptionRowCell", for: indexPath) as! CleanOptionRowCell
 
         if indexPath.section == 0 {
             let option: CleanOption
+            let titleText: String
             switch indexPath.row {
             case 0:
-                cell.textLabel?.text = "网页缓存文件"
+                titleText = "网页缓存文件"
                 option = .cache
             case 1:
-                cell.textLabel?.text = "登录与本地数据"
+                titleText = "登录与本地数据"
                 option = .loginAndData
             case 2:
-                cell.textLabel?.text = "搜索历史记录"
+                titleText = "搜索历史记录"
                 option = .searchHistory
             default:
-                cell.textLabel?.text = "用户脚本缓存数据"
+                titleText = "用户脚本缓存数据"
                 option = .scriptData
             }
 
             let isChecked = selectedOptions.contains(option)
-            cell.accessoryType = isChecked ? .checkmark : .none
+            cell.configure(title: titleText, isChecked: isChecked, isDestructive: false)
         } else if indexPath.section == 1 {
-            cell.textLabel?.text = "确认清理"
-            cell.textLabel?.textColor = .systemRed
-            cell.textLabel?.textAlignment = .center
+            cell.configure(title: "确认清理", isChecked: false, isDestructive: true)
         } else {
-            cell.textLabel?.text = "管理网站数据与锁定保护"
-            cell.textLabel?.textColor = .systemBlue
-            cell.textLabel?.textAlignment = .center
+            cell.configure(title: "管理网站数据与锁定保护", isChecked: false, isDestructive: false, textColor: .systemBlue)
         }
 
         return cell
     }
 
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
 
         if indexPath.section == 0 {
@@ -791,6 +816,75 @@ final class CleanDataSelectionViewController: UITableViewController {
             dismiss(animated: true) { [weak self] in
                 self?.onOpenWebsiteDataManager?()
             }
+        }
+    }
+}
+
+final class CleanOptionRowCell: UITableViewCell {
+    private let cardView = UIView()
+    private let titleLabel = UILabel()
+    private let checkIcon = UIImageView()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        backgroundColor = .clear
+        selectionStyle = .none
+
+        cardView.translatesAutoresizingMaskIntoConstraints = false
+        cardView.backgroundColor = .white
+        cardView.layer.cornerRadius = 14
+        cardView.layer.shadowColor = UIColor.black.cgColor
+        cardView.layer.shadowOpacity = 0.03
+        cardView.layer.shadowRadius = 6
+        cardView.layer.shadowOffset = CGSize(width: 0, height: 2)
+        cardView.clipsToBounds = false
+
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .systemFont(ofSize: 15, weight: .medium)
+
+        checkIcon.translatesAutoresizingMaskIntoConstraints = false
+        checkIcon.image = UIImage(systemName: "checkmark")
+        checkIcon.tintColor = .systemBlue
+
+        cardView.addSubview(titleLabel)
+        cardView.addSubview(checkIcon)
+        contentView.addSubview(cardView)
+
+        NSLayoutConstraint.activate([
+            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+            cardView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
+            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -4),
+
+            titleLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16),
+            titleLabel.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
+
+            checkIcon.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16),
+            checkIcon.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
+            checkIcon.widthAnchor.constraint(equalToConstant: 18),
+            checkIcon.heightAnchor.constraint(equalToConstant: 18)
+        ])
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    func configure(title: String, isChecked: Bool, isDestructive: Bool, textColor: UIColor? = nil) {
+        titleLabel.text = title
+        if let textColor = textColor {
+            titleLabel.textColor = textColor
+            titleLabel.textAlignment = .center
+            titleLabel.font = .systemFont(ofSize: 15, weight: .bold)
+            checkIcon.isHidden = true
+        } else if isDestructive {
+            titleLabel.textColor = .systemRed
+            titleLabel.textAlignment = .center
+            titleLabel.font = .systemFont(ofSize: 15, weight: .bold)
+            checkIcon.isHidden = true
+        } else {
+            titleLabel.textColor = .label
+            titleLabel.textAlignment = .left
+            titleLabel.font = .systemFont(ofSize: 15, weight: .medium)
+            checkIcon.isHidden = !isChecked
         }
     }
 }
