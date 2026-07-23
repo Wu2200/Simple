@@ -31,10 +31,17 @@ jobs:
             -configuration Release \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -r build/Build/Products/Release-iphoneos/SimpleBrowser.app Payload/
+          zip -r SimpleBrowser.ipa Payload
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SimpleBrowser-Build
-          path: build/Build/Products/Release-iphoneos/
+          name: SimpleBrowser-IPA
+          path: SimpleBrowser.ipa
