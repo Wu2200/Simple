@@ -61,6 +61,13 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
     private let webContainer = UIView()
     private let homeView = UIView()
+    private let failureOverlayView = UIView()
+    private let failureTitleLabel = UILabel()
+    private let failureReasonLabel = UILabel()
+    private let failureURLLabel = UILabel()
+    private let failureBackButton = TouchButton(type: .system)
+    private let failureReloadButton = TouchButton(type: .system)
+
     private let bottomPanel = UIView()
     private let addressContainer = UIView()
     private let siteSettingsButton = TouchButton(type: .system)
@@ -181,6 +188,79 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         homeView.translatesAutoresizingMaskIntoConstraints = false
         homeView.backgroundColor = themeBg
 
+        failureOverlayView.translatesAutoresizingMaskIntoConstraints = false
+        failureOverlayView.backgroundColor = themeBg
+        failureOverlayView.isHidden = true
+
+        failureTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        failureTitleLabel.font = .systemFont(ofSize: 20, weight: .bold)
+        failureTitleLabel.textColor = .label
+        failureTitleLabel.text = "无法连接服务器"
+
+        failureReasonLabel.translatesAutoresizingMaskIntoConstraints = false
+        failureReasonLabel.font = .systemFont(ofSize: 14, weight: .regular)
+        failureReasonLabel.textColor = .secondaryLabel
+        failureReasonLabel.textAlignment = .center
+        failureReasonLabel.numberOfLines = 0
+        failureReasonLabel.text = "服务器拒绝连接或已被网络策略/代理拦截。"
+
+        failureURLLabel.translatesAutoresizingMaskIntoConstraints = false
+        failureURLLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        failureURLLabel.textColor = .tertiaryLabel
+        failureURLLabel.textAlignment = .center
+        failureURLLabel.numberOfLines = 2
+
+        failureBackButton.translatesAutoresizingMaskIntoConstraints = false
+        var backConfig = UIButton.Configuration.filled()
+        backConfig.title = "返回上一页"
+        backConfig.baseBackgroundColor = .white
+        backConfig.baseForegroundColor = .label
+        backConfig.cornerStyle = .medium
+        failureBackButton.configuration = backConfig
+        failureBackButton.layer.shadowColor = UIColor.black.cgColor
+        failureBackButton.layer.shadowOpacity = 0.04
+        failureBackButton.layer.shadowRadius = 6
+        failureBackButton.layer.shadowOffset = CGSize(width: 0, height: 2)
+        failureBackButton.addTarget(self, action: #selector(goBack), for: .touchUpInside)
+
+        failureReloadButton.translatesAutoresizingMaskIntoConstraints = false
+        var reloadConfig = UIButton.Configuration.filled()
+        reloadConfig.title = "重新加载"
+        reloadConfig.baseBackgroundColor = .systemBlue
+        reloadConfig.baseForegroundColor = .white
+        reloadConfig.cornerStyle = .medium
+        failureReloadButton.configuration = reloadConfig
+        failureReloadButton.addTarget(self, action: #selector(handleRefreshTap), for: .touchUpInside)
+
+        let btnStack = UIStackView(arrangedSubviews: [failureBackButton, failureReloadButton])
+        btnStack.translatesAutoresizingMaskIntoConstraints = false
+        btnStack.axis = .horizontal
+        btnStack.spacing = 12
+        btnStack.distribution = .fillEqually
+
+        failureOverlayView.addSubview(failureTitleLabel)
+        failureOverlayView.addSubview(failureReasonLabel)
+        failureOverlayView.addSubview(failureURLLabel)
+        failureOverlayView.addSubview(btnStack)
+
+        NSLayoutConstraint.activate([
+            failureTitleLabel.centerXAnchor.constraint(equalTo: failureOverlayView.centerXAnchor),
+            failureTitleLabel.centerYAnchor.constraint(equalTo: failureOverlayView.centerYAnchor, constant: -40),
+
+            failureReasonLabel.topAnchor.constraint(equalTo: failureTitleLabel.bottomAnchor, constant: 8),
+            failureReasonLabel.leadingAnchor.constraint(equalTo: failureOverlayView.leadingAnchor, constant: 32),
+            failureReasonLabel.trailingAnchor.constraint(equalTo: failureOverlayView.trailingAnchor, constant: -32),
+
+            failureURLLabel.topAnchor.constraint(equalTo: failureReasonLabel.bottomAnchor, constant: 10),
+            failureURLLabel.leadingAnchor.constraint(equalTo: failureOverlayView.leadingAnchor, constant: 32),
+            failureURLLabel.trailingAnchor.constraint(equalTo: failureOverlayView.trailingAnchor, constant: -32),
+
+            btnStack.topAnchor.constraint(equalTo: failureURLLabel.bottomAnchor, constant: 24),
+            btnStack.centerXAnchor.constraint(equalTo: failureOverlayView.centerXAnchor),
+            btnStack.widthAnchor.constraint(equalToConstant: 240),
+            btnStack.heightAnchor.constraint(equalToConstant: 40)
+        ])
+
         bottomPanel.translatesAutoresizingMaskIntoConstraints = false
         bottomPanel.backgroundColor = themeBg
         bottomPanel.clipsToBounds = false
@@ -190,9 +270,9 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         addressContainer.layer.cornerRadius = 18
         addressContainer.layer.borderWidth = 0
         addressContainer.layer.shadowColor = UIColor.black.cgColor
-        addressContainer.layer.shadowOpacity = 0.06
-        addressContainer.layer.shadowRadius = 10
-        addressContainer.layer.shadowOffset = CGSize(width: 0, height: 3)
+        addressContainer.layer.shadowOpacity = 0.05
+        addressContainer.layer.shadowRadius = 8
+        addressContainer.layer.shadowOffset = CGSize(width: 0, height: 2)
         addressContainer.clipsToBounds = false
 
         let longPressAddress = UILongPressGestureRecognizer(target: self, action: #selector(handleAddressLongPress(_:)))
@@ -283,13 +363,14 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
         view.addSubview(webContainer)
         view.addSubview(homeView)
+        view.addSubview(failureOverlayView)
         view.addSubview(bottomPanel)
 
-        bottomPanelBottomConstraint = bottomPanel.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -4)
+        bottomPanelBottomConstraint = bottomPanel.bottomAnchor.constraint(equalTo: view.bottomAnchor)
 
         webTopSafeConstraint = webContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor)
         webTopFullscreenConstraint = webContainer.topAnchor.constraint(equalTo: view.topAnchor)
-        webBottomPanelConstraint = webContainer.bottomAnchor.constraint(equalTo: bottomPanel.topAnchor, constant: -6)
+        webBottomPanelConstraint = webContainer.bottomAnchor.constraint(equalTo: bottomPanel.topAnchor)
         webBottomFullscreenConstraint = webContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor)
 
         webTopSafeConstraint?.isActive = true
@@ -304,12 +385,16 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             homeView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             homeView.bottomAnchor.constraint(equalTo: webContainer.bottomAnchor),
 
+            failureOverlayView.topAnchor.constraint(equalTo: webContainer.topAnchor),
+            failureOverlayView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            failureOverlayView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            failureOverlayView.bottomAnchor.constraint(equalTo: webContainer.bottomAnchor),
+
             bottomPanel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             bottomPanelBottomConstraint!,
-            bottomPanel.heightAnchor.constraint(equalToConstant: 92),
 
-            addressContainer.topAnchor.constraint(equalTo: bottomPanel.topAnchor, constant: 4),
+            addressContainer.topAnchor.constraint(equalTo: bottomPanel.topAnchor, constant: 6),
             addressContainer.leadingAnchor.constraint(equalTo: bottomPanel.leadingAnchor, constant: 16),
             addressContainer.trailingAnchor.constraint(equalTo: bottomPanel.trailingAnchor, constant: -16),
             addressContainer.heightAnchor.constraint(equalToConstant: 36),
@@ -342,7 +427,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             navigationStack.topAnchor.constraint(equalTo: addressContainer.bottomAnchor, constant: 8),
             navigationStack.leadingAnchor.constraint(equalTo: bottomPanel.leadingAnchor, constant: 16),
             navigationStack.trailingAnchor.constraint(equalTo: bottomPanel.trailingAnchor, constant: -16),
-            navigationStack.bottomAnchor.constraint(equalTo: bottomPanel.bottomAnchor, constant: -4),
+            navigationStack.bottomAnchor.constraint(equalTo: bottomPanel.safeAreaLayoutGuide.bottomAnchor, constant: -4),
             navigationStack.heightAnchor.constraint(equalToConstant: 38)
         ])
     }
@@ -397,7 +482,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         button.backgroundColor = .white
         button.layer.cornerRadius = 14
         button.layer.shadowColor = UIColor.black.cgColor
-        button.layer.shadowOpacity = 0.05
+        button.layer.shadowOpacity = 0.04
         button.layer.shadowRadius = 6
         button.layer.shadowOffset = CGSize(width: 0, height: 2)
         button.clipsToBounds = false
@@ -474,7 +559,9 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
         bindProgressObservation(to: tab.webView)
 
-        if let url = tab.url {
+        if tab.isDisplayingFailurePage {
+            showFailureUI(for: tab)
+        } else if let url = tab.url {
             showBrowserUI()
             addressField.text = url.host ?? url.absoluteString
         } else {
@@ -532,6 +619,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
     private func showHomeUI() {
         homeView.alpha = 1
         webContainer.alpha = 0
+        failureOverlayView.isHidden = true
         addressField.text = ""
         addressField.resignFirstResponder()
         resetProgress()
@@ -541,6 +629,21 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
     private func showBrowserUI() {
         homeView.alpha = 0
         webContainer.alpha = 1
+        failureOverlayView.isHidden = true
+        updateUIState()
+    }
+
+    private func showFailureUI(for tab: TabItem) {
+        homeView.alpha = 0
+        webContainer.alpha = 1
+        failureOverlayView.isHidden = false
+        failureURLLabel.text = tab.failedURL?.absoluteString ?? tab.url?.absoluteString ?? ""
+        if let err = tab.failureError as NSError? {
+            failureTitleLabel.text = "无法连接服务器"
+            failureReasonLabel.text = err.localizedDescription
+        }
+        addressField.text = tab.failedURL?.host ?? tab.failedURL?.absoluteString ?? tab.url?.host ?? ""
+        resetProgress()
         updateUIState()
     }
 
@@ -649,8 +752,11 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             return
         }
 
-        if let url = tab.url, !addressField.isFirstResponder {
-            addressField.text = url.host ?? url.absoluteString
+        if !tab.isDisplayingFailurePage {
+            failureOverlayView.isHidden = true
+            if let url = tab.url, !addressField.isFirstResponder {
+                addressField.text = url.host ?? url.absoluteString
+            }
         }
 
         if !tab.isLoading {
@@ -665,8 +771,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             return
         }
 
-        resetProgress()
-        updateUIState()
+        showFailureUI(for: tab)
     }
 
     func textFieldDidBeginEditing(_ textField: UITextField) {
@@ -728,8 +833,8 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
     @objc private func keyboardWillChangeFrame(_ notification: Notification) {
         guard addressField.isFirstResponder else {
-            if bottomPanelBottomConstraint?.constant != -4 {
-                bottomPanelBottomConstraint?.constant = -4
+            if bottomPanelBottomConstraint?.constant != 0 {
+                bottomPanelBottomConstraint?.constant = 0
                 view.layoutIfNeeded()
             }
             return
@@ -749,7 +854,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         let curve = userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
         let options = UIView.AnimationOptions(rawValue: curve << 16)
 
-        bottomPanelBottomConstraint?.constant = -(offset + 4)
+        bottomPanelBottomConstraint?.constant = -offset
 
         UIView.animate(withDuration: duration, delay: 0, options: options) {
             self.view.layoutIfNeeded()
@@ -758,8 +863,8 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
     @objc private func keyboardWillHide(_ notification: Notification) {
         guard addressField.isFirstResponder else {
-            if bottomPanelBottomConstraint?.constant != -4 {
-                bottomPanelBottomConstraint?.constant = -4
+            if bottomPanelBottomConstraint?.constant != 0 {
+                bottomPanelBottomConstraint?.constant = 0
                 view.layoutIfNeeded()
             }
             return
@@ -767,7 +872,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
         guard let userInfo = notification.userInfo,
               let duration = userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval else {
-            bottomPanelBottomConstraint?.constant = -4
+            bottomPanelBottomConstraint?.constant = 0
             view.layoutIfNeeded()
             return
         }
@@ -775,7 +880,7 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
         let curve = userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
         let options = UIView.AnimationOptions(rawValue: curve << 16)
 
-        bottomPanelBottomConstraint?.constant = -4
+        bottomPanelBottomConstraint?.constant = 0
 
         UIView.animate(withDuration: duration, delay: 0, options: options) {
             self.view.layoutIfNeeded()
@@ -795,6 +900,18 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
             return
         }
 
+        if activeTab.isDisplayingFailurePage {
+            activeTab.isDisplayingFailurePage = false
+            failureOverlayView.isHidden = true
+            if let targetURL = activeTab.failedURL {
+                activeTab.webView.load(URLRequest(url: targetURL))
+            } else {
+                activeTab.webView.reload()
+            }
+            updateUIState()
+            return
+        }
+
         if activeTab.isLoading {
             activeTab.webView.stopLoading()
         } else {
@@ -806,6 +923,8 @@ final class BrowserViewController: UIViewController, UITextFieldDelegate, TabIte
 
     @objc private func goBack() {
         if activeTab.isDisplayingFailurePage {
+            activeTab.isDisplayingFailurePage = false
+            failureOverlayView.isHidden = true
             if activeTab.webView.canGoBack {
                 activeTab.webView.goBack()
                 return
